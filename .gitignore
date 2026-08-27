@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+dist
+.env
+.env.local
+.env.production
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.pem
+coverage
+dev-server.log
+dev-server.err.log
+tsconfig.tsbuildinfo
+tmp/
