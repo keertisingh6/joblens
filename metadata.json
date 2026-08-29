@@ -1,6 +1,6 @@
 {
   "name": "JobLens",
-  "description": "Recruitment scam detection and job offer risk analysis platform.",
+  "description": "Browser-first recruitment cybersecurity extension and forensic intelligence center for detecting fake jobs, advance-fee scams, and recruiter impersonation.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

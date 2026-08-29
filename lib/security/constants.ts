@@ -1,0 +1,123 @@
+export const FREE_EMAIL_PROVIDERS = [
+  "gmail.com",
+  "yahoo.com",
+  "ymail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "proton.me",
+  "protonmail.com",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+  "rediffmail.com",
+  "zoho.com",
+  "mail.com",
+  "gmx.com",
+  "yandex.com",
+  "mail.ru"
+];
+
+export const DISPOSABLE_EMAIL_DOMAINS = [
+  "mailinator.com",
+  "tempmail.com",
+  "10minutemail.com",
+  "guerrillamail.com",
+  "throwawaymail.com",
+  "yopmail.com",
+  "sharklasers.com",
+  "getairmail.com",
+  "dispostable.com",
+  "temp-mail.org",
+  "trashmail.com"
+];
+
+export const SUSPICIOUS_TLDS = [
+  ".xyz",
+  ".top",
+  ".click",
+  ".work",
+  ".loan",
+  ".biz",
+  ".zip",
+  ".mov",
+  ".fit",
+  ".gq",
+  ".cf",
+  ".ga",
+  ".ml",
+  ".tk",
+  ".icu",
+  ".monster",
+  ".surf",
+  ".rest",
+  ".bar",
+  ".fail",
+  ".live"
+];
+
+export const URL_SHORTENERS = [
+  "bit.ly",
+  "tinyurl.com",
+  "t.co",
+  "is.gd",
+  "cutt.ly",
+  "rb.gy",
+  "ow.ly",
+  "buff.ly",
+  "rebrand.ly",
+  "shorturl.at",
+  "qr.ae",
+  "bl.ink"
+];
+
+export const RECOGNIZED_ATS_DOMAINS: Record<string, string> = {
+  "greenhouse.io": "Greenhouse ATS",
+  "lever.co": "Lever ATS",
+  "workdayjobs.com": "Workday Recruiting",
+  "myworkdayjobs.com": "Workday Enterprise ATS",
+  "smartrecruiters.com": "SmartRecruiters",
+  "ashbyhq.com": "Ashby Recruiting",
+  "bamboohr.com": "BambooHR",
+  "jobvite.com": "Jobvite",
+  "recruitee.com": "Recruitee",
+  "taleo.net": "Oracle Taleo Enterprise",
+  "icims.com": "iCIMS Talent Cloud",
+  "workable.com": "Workable ATS",
+  "amazon.jobs": "Amazon Corporate Jobs",
+  "careers.google.com": "Google Careers",
+  "careers.microsoft.com": "Microsoft Careers",
+  "jobs.apple.com": "Apple Careers",
+  "metacareers.com": "Meta Careers",
+  "jobs.netflix.com": "Netflix Jobs",
+  "linkedin.com": "LinkedIn Talent Portal",
+  "naukri.com": "Naukri.com",
+  "indeed.com": "Indeed Jobs",
+  "wellfound.com": "Wellfound (AngelList)",
+  "glassdoor.com": "Glassdoor Jobs",
+  "hirist.tech": "Hirist Tech Careers",
+  "instahyre.com": "Instahyre Talent"
+};
+
+export const KNOWN_ENTERPRISE_DOMAINS: Record<string, string[]> = {
+  amazon: ["amazon.jobs", "amazon.com", "aws.amazon.com"],
+  google: ["google.com", "careers.google.com", "abc.xyz"],
+  microsoft: ["microsoft.com", "careers.microsoft.com"],
+  apple: ["apple.com", "jobs.apple.com"],
+  meta: ["meta.com", "metacareers.com", "facebook.com"],
+  netflix: ["netflix.com", "jobs.netflix.com"],
+  adobe: ["adobe.com", "adobe.design"],
+  salesforce: ["salesforce.com", "salesforce.wd1.myworkdayjobs.com"],
+  flipkart: ["flipkart.com", "flipkartcareers.com"],
+  tcs: ["tcs.com", "ibegin.tcs.com"],
+  infosys: ["infosys.com", "careers.infosys.com"],
+  wipro: ["wipro.com", "careers.wipro.com"],
+  accenture: ["accenture.com"],
+  ibm: ["ibm.com", "ibm.biz"],
+  deloitte: ["deloitte.com", "deloitte.wd1.myworkdayjobs.com"],
+  uber: ["uber.com"],
+  airbnb: ["airbnb.com", "careers.airbnb.com"],
+  swiggy: ["swiggy.com", "careers.swiggy.com"],
+  zomato: ["zomato.com"]
+};

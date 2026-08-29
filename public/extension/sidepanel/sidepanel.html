@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobLens - Recruitment Security Side Panel</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body class="theme-dark">
+  <div id="app-container">
+    <!-- ONBOARDING VIEW (Shown on first run) -->
+    <section id="view-onboarding" class="view-panel hidden">
+      <div class="onboarding-card">
+        <div class="brand-badge">
+          <div class="brand-icon">🛡️</div>
+          <h2>JobLens</h2>
+        </div>
+        <p class="tagline">Browser Recruitment Security Layer</p>
+        <p class="onboarding-desc">
+          Proactive protection against fake jobs, advance-fee scams, recruiter impersonation, and phishing as you browse.
+        </p>
+
+        <form id="onboarding-form" class="form-stack">
+          <div class="field">
+            <label for="onboard-name">Your Name</label>
+            <input type="text" id="onboard-name" placeholder="e.g. Keerti Singh" required>
+          </div>
+          <div class="field">
+            <label for="onboard-email">Email (for alert sync)</label>
+            <input type="email" id="onboard-email" placeholder="e.g. keerti@example.com" required>
+          </div>
+          <div class="field">
+            <label for="onboard-sensitivity">Threat Sensitivity</label>
+            <select id="onboard-sensitivity">
+              <option value="STANDARD">Standard (Balanced Heuristics)</option>
+              <option value="AGGRESSIVE">Aggressive (Zero-Trust Strict)</option>
+              <option value="RELAXED">Relaxed (Flags Critical Only)</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            Enable Proactive Protection
+          </button>
+        </form>
+        <p class="privacy-note">🔒 Evaluates opportunities with zero tracking.</p>
+      </div>
+    </section>
+
+    <!-- MAIN SIDE PANEL VIEW -->
+    <section id="view-main" class="view-panel">
+      <!-- Top App Bar -->
+      <header class="app-header">
+        <div class="header-brand">
+          <span class="logo-shield">🛡️</span>
+          <div>
+            <h1 class="brand-title">JobLens</h1>
+            <span class="sub-label">Recruitment Security</span>
+          </div>
+        </div>
+        
+        <div class="protection-toggle-container">
+          <span class="protection-status" id="protection-status-text">Protection: ON</span>
+          <label class="switch">
+            <input type="checkbox" id="protection-toggle" checked>
+            <span class="slider round"></span>
+          </label>
+        </div>
+      </header>
+
+      <!-- Navigation Tabs -->
+      <nav class="panel-nav">
+        <button class="nav-tab active" data-tab="tab-scan">🔍 Live Scan</button>
+        <button class="nav-tab" data-tab="tab-history">📜 History</button>
+        <button class="nav-tab" data-tab="tab-radar">⚡ Radar</button>
+        <button class="nav-tab" data-tab="tab-safety">📋 Safety</button>
+        <button class="nav-tab" data-tab="tab-settings">⚙️ Settings</button>
+      </nav>
+
+      <!-- TAB 1: LIVE SCAN -->
+      <div id="tab-scan" class="tab-content active">
+        <!-- Target Context Bar -->
+        <div class="context-card" id="context-card">
+          <div class="context-header">
+            <span class="platform-badge" id="detected-platform">LinkedIn</span>
+            <span class="source-type" id="detected-type">Job Posting</span>
+          </div>
+          <div class="context-details">
+            <h3 class="target-title" id="target-job-title">Scanning active tab...</h3>
+            <p class="target-company" id="target-company-name">Detecting employer...</p>
+            <p class="target-contact" id="target-contact-info"></p>
+          </div>
+          <div class="context-actions">
+            <button class="btn btn-xs btn-primary" id="btn-refresh-page">🔍 Scan This Page</button>
+            <button class="btn btn-xs btn-outline" id="btn-manual-input">✏️ Custom Text</button>
+          </div>
+        </div>
+
+        <!-- Manual Paste Box (Collapsible) -->
+        <div class="manual-input-box hidden" id="manual-input-box">
+          <label for="manual-paste-text">Analyze Selected Text / WhatsApp / Recruiter Message:</label>
+          <textarea id="manual-paste-text" placeholder="Paste job offer, WhatsApp message, or Telegram recruiter conversation here..."></textarea>
+          <div class="manual-input-actions">
+            <button class="btn btn-xs btn-primary" id="btn-submit-manual">Analyze Content</button>
+            <button class="btn btn-xs btn-ghost" id="btn-cancel-manual">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Loading State -->
+        <div class="scan-loading hidden" id="scan-loading">
+          <div class="spinner"></div>
+          <p>Running multi-dimensional recruitment threat matrix...</p>
+        </div>
+
+        <!-- NO JOB DETECTED STATE -->
+        <div class="no-job-card hidden" id="no-job-card">
+          <div class="no-job-icon">🔎</div>
+          <h3>JobLens couldn't identify a job posting on this page.</h3>
+          <p>You can select any recruitment text on the page or paste recruiter messages directly.</p>
+          <div class="no-job-actions">
+            <button class="btn btn-secondary btn-block" id="btn-select-text-action">
+              ✂️ Select Text to Scan
+            </button>
+            <button class="btn btn-outline btn-block" id="btn-open-paste-action">
+              📋 Paste Opportunity / Message
+            </button>
+          </div>
+        </div>
+
+        <!-- SCAN RESULT CARD -->
+        <div class="scan-result-card hidden" id="scan-result-card">
+          <!-- RISK HEADER -->
+          <div class="risk-banner" id="risk-banner">
+            <div class="risk-banner-header">
+              <div class="risk-title-group">
+                <span class="risk-icon" id="risk-badge-icon">🚨</span>
+                <span class="risk-title-text" id="risk-badge-text">RECRUITMENT SCAM DETECTED</span>
+              </div>
+              <div class="score-pill">
+                <span class="score-num" id="threat-score-val">87</span>
+                <span class="score-denom">/100</span>
+              </div>
+            </div>
+            <div class="score-progress-bar">
+              <div class="score-progress-fill" id="score-progress-fill"></div>
+            </div>
+          </div>
+
+          <!-- TRUST SIGNALS (For Low Risk) -->
+          <div class="trust-box hidden" id="trust-box">
+            <div class="trust-title">✅ Verified Trust Indicators</div>
+            <p class="trust-desc">No advance-fee extortion, credential harvesting, or impersonation signals detected. Follow standard candidate due diligence.</p>
+          </div>
+
+          <!-- THREAT BREAKDOWN -->
+          <div class="threat-breakdown-box" id="threat-breakdown-box">
+            <div class="category-pills" id="category-pills-row"></div>
+            
+            <div class="why-box">
+              <span class="section-tag">WHY THIS MATTERS</span>
+              <p id="why-text" class="why-text"></p>
+            </div>
+
+            <div class="action-box">
+              <span class="section-tag">DEFENSIVE ACTION</span>
+              <p id="action-text" class="action-text"></p>
+            </div>
+
+            <!-- EVIDENCE SNIPPETS -->
+            <div class="evidence-box">
+              <span class="section-tag">EVIDENCE DETECTED (<span id="evidence-count">0</span>)</span>
+              <div id="evidence-list" class="evidence-list"></div>
+            </div>
+          </div>
+
+          <!-- BOTTOM ACTION TOOLBAR -->
+          <div class="scan-actions-grid">
+            <button class="btn btn-xs btn-outline" id="btn-copy-report">📋 Copy Report</button>
+            <button class="btn btn-xs btn-outline" id="btn-save-report">💾 Save</button>
+            <button class="btn btn-xs btn-outline btn-danger-ghost" id="btn-report-scam">🚨 Report</button>
+            <button class="btn btn-xs btn-ghost" id="btn-mark-safe">Mark Safe</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: THREAT HISTORY -->
+      <div id="tab-history" class="tab-content">
+        <div class="history-header">
+          <h3>Saved Threat Intelligence</h3>
+          <button class="btn btn-xs btn-ghost" id="btn-clear-history">Clear</button>
+        </div>
+        <div id="history-items-container" class="history-list"></div>
+      </div>
+
+      <!-- TAB 3: SCAM RADAR -->
+      <div id="tab-radar" class="tab-content">
+        <div class="radar-header">
+          <h3>Recruitment Threat Radar</h3>
+          <p class="text-dim text-xs">8 Core Cyber Threat Vectors</p>
+        </div>
+        <div class="radar-list">
+          <div class="radar-item">
+            <div class="radar-item-title">💼 Advance-Fee Laptop / Equipment Scam</div>
+            <p class="radar-item-desc">Adversaries demand refundable deposits for MacBook/monitors before courier dispatch.</p>
+          </div>
+          <div class="radar-item">
+            <div class="radar-item-title">📱 YouTube / Review Task Scam</div>
+            <p class="radar-item-desc">Lures victims with small payouts for video likes, then demands thousands in prepaid recharge fees.</p>
+          </div>
+          <div class="radar-item">
+            <div class="radar-item-title">🆔 Aadhaar / PAN Credential Harvesting</div>
+            <p class="radar-item-desc">Demands sensitive national ID scans and bank credentials prior to interview.</p>
+          </div>
+          <div class="radar-item">
+            <div class="radar-item-title">🖥️ AnyDesk / Remote Access RAT</div>
+            <p class="radar-item-desc">Pressures candidate to install remote desktop utilities under guise of 'system test'.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: SAFETY TOOLKIT -->
+      <div id="tab-safety" class="tab-content">
+        <div class="safety-header">
+          <h3>Candidate Verification Protocol</h3>
+        </div>
+        <div class="safety-checklist">
+          <label class="check-item"><input type="checkbox"> 1. Verify recruiter profile on official LinkedIn.</label>
+          <label class="check-item"><input type="checkbox"> 2. Cross-check email domain against corporate MX records.</label>
+          <label class="check-item"><input type="checkbox"> 3. Never pay application, interview, or equipment deposits.</label>
+          <label class="check-item"><input type="checkbox"> 4. Never share 6-digit OTPs or banking PINs.</label>
+          <label class="check-item"><input type="checkbox"> 5. Never install remote desktop utilities on candidate devices.</label>
+        </div>
+      </div>
+
+      <!-- TAB 5: SETTINGS -->
+      <div id="tab-settings" class="tab-content">
+        <div class="settings-card">
+          <h3>User Security Profile</h3>
+          <p class="user-email-text" id="user-display-email">candidate@joblens.security</p>
+          <div class="field pt-2">
+            <label>Threat Sensitivity</label>
+            <select id="settings-sensitivity">
+              <option value="STANDARD">Standard (Balanced)</option>
+              <option value="AGGRESSIVE">Aggressive (Zero-Trust)</option>
+              <option value="RELAXED">Relaxed (Critical Only)</option>
+            </select>
+          </div>
+          <div class="settings-actions pt-4">
+            <button class="btn btn-secondary btn-block" id="btn-logout">Sign Out / Reset Session</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

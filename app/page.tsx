@@ -1,29 +1,40 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useMemo, useEffect } from "react";
 import {
+  AlertOctagon,
   AlertTriangle,
   ArrowRight,
   Briefcase,
   Building2,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  Code2,
   Copy,
-  FileCheck2,
-  FileText,
+  Download,
+  ExternalLink,
+  Eye,
+  FileCode,
+  Globe,
+  HelpCircle,
+  History,
   Info,
   Link2,
   Lock,
   Mail,
+  PieChart,
   RotateCcw,
   Search,
-  Send,
+  Server,
+  Shield,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Terminal,
+  Trash2,
   Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,1799 +45,1863 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-type Screen = "home" | "analyze" | "results" | "radar" | "safety";
-type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
-type Severity = "high" | "medium" | "low";
+import type {
+  CyberThreatReport,
+  JobInputForm,
+  ThreatSeverity
+} from "@/lib/security/types";
+import { runThreatAnalysis } from "@/lib/security/rule-engine";
+import {
+  clearAllScanReports,
+  deleteScanReport,
+  DEMO_PRESET_SCANS,
+  formatReportAsPlainText,
+  getScanHistory,
+  getSecurityStats,
+  saveScanReport
+} from "@/lib/security/history-store";
+import { SCAM_KNOWLEDGE_BASE } from "@/lib/security/knowledge-base";
+import { getThreatIntelStatus } from "@/lib/security/threat-intelligence";
+import {
+  extractEmailDomain,
+  extractUrlHostname,
+  findRecognizedAts,
+  normalizeCompanyName
+} from "@/lib/security/normalizer";
+import { FREE_EMAIL_PROVIDERS } from "@/lib/security/constants";
+import { ExtensionSimulator } from "@/components/extension-simulator";
+import { ExtensionDownloadCard } from "@/components/extension-download-card";
 
-type JobFormData = {
-  jobDescription: string;
-  companyName: string;
-  recruiterEmail: string;
-  applicationUrl: string;
-};
+type Screen = "extension" | "home" | "analyze" | "results" | "dashboard" | "radar" | "analyst" | "safety" | "download";
 
-type Finding = {
-  id: string;
-  category: "payment" | "identity" | "domain" | "communication" | "pressure" | "salary";
-  title: string;
-  why: string;
-  action: string;
-  severity: Severity;
-};
-
-type AnalysisResult = {
-  score: number;
-  level: RiskLevel;
-  findings: Finding[];
-  positives: string[];
-  summary: string;
-  actions: string[];
-  dimensions: {
-    paymentRisk: number; // 0-100
-    domainTrust: number; // 0-100
-    communicationTrust: number; // 0-100
-    pressureRisk: number; // 0-100
-    compensationRealism: number; // 0-100
-  };
-};
-
-const emptyForm: JobFormData = {
-  jobDescription: "",
+const INITIAL_FORM: JobInputForm = {
+  jobTitle: "",
   companyName: "",
   recruiterEmail: "",
-  applicationUrl: ""
+  applicationUrl: "",
+  jobDescription: "",
+  emailHeaders: ""
 };
 
-// Preset samples for rapid testing
-const samplePresets = [
-  {
-    id: "scam-1",
-    tag: "High Risk Scam",
-    badgeColor: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800",
-    title: "Data Entry Assistant ($4,500/wk)",
-    company: "Amazon Web Services Inc",
-    email: "hr.amazon.recruiting2026@gmail.com",
-    url: "https://bit.ly/amazon-remote-careers-apply",
-    description:
-      "URGENT HIRING: We are seeking immediate Data Entry & Virtual Assistants to work from home. Earn $4,500 - $6,000 per week. No experience required! Freshers welcome. Selected candidates must connect via Telegram (@AmazonHiringOfficial) or WhatsApp immediately. Note: A refundable equipment registration & insurance deposit of ₹3,500 / $150 is mandatory for shipping your company Apple MacBook. You must pay within 24 hours to secure your slot."
-  },
-  {
-    id: "scam-2",
-    tag: "Moderate Warning",
-    badgeColor: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
-    title: "Remote React Developer (Unverified)",
-    company: "Apex Global Technologies",
-    email: "sarah.recruiter@apexglobal-careers.xyz",
-    url: "https://apexglobal-portal.work/jobs/9823",
-    description:
-      "We are looking for a Remote Frontend React Developer. Compensation is $140,000 / year. Candidate must complete a 1-day typing assessment and submit ID proof and net banking details for direct payroll setup before the interview. Contact kindly via WhatsApp to schedule an interview."
-  },
-  {
-    id: "legit-1",
-    tag: "Legitimate Job",
-    badgeColor: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
-    title: "Senior Software Engineer (Verified)",
-    company: "Amazon",
-    email: "recruiting-team@amazon.com",
-    url: "https://amazon.jobs/en/jobs/2589012/software-development-engineer",
-    description:
-      "Amazon is seeking a Software Development Engineer to join our Distributed Systems team. Requirements: 4+ years of experience with modern languages such as Java, TypeScript, or Go. Bachelor's degree in Computer Science or equivalent. Responsibilities include building scalable cloud microservices, collaborating with product teams, and participating in code reviews. Standard multi-round interview process with recruiter screening, technical loops, and behavioral evaluation."
-  }
-];
+export default function JobLensApp() {
+  const [currentScreen, setCurrentScreen] = useState<Screen>("extension");
+  const [formData, setFormData] = useState<JobInputForm>(INITIAL_FORM);
+  const [currentReport, setCurrentReport] = useState<CyberThreatReport | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStep, setScanStep] = useState(0);
+  const [showAdvancedHeaders, setShowAdvancedHeaders] = useState(false);
+  const [copiedReport, setCopiedReport] = useState(false);
+  const [historyList, setHistoryList] = useState<CyberThreatReport[]>([]);
+  const [radarFilter, setRadarFilter] = useState<string>("ALL");
+  const [checkedSafetyItems, setCheckedSafetyItems] = useState<Record<string, boolean>>({});
 
-const knownCompanyDomains: Record<string, string[]> = {
-  amazon: ["amazon.jobs", "amazon.com", "aws.amazon.com"],
-  google: ["google.com", "careers.google.com", "abc.xyz"],
-  microsoft: ["microsoft.com", "careers.microsoft.com", "linkedin.com"],
-  apple: ["apple.com", "jobs.apple.com"],
-  meta: ["meta.com", "metacareers.com", "facebook.com"],
-  netflix: ["netflix.com", "jobs.netflix.com"],
-  adobe: ["adobe.com", "adobe.design"],
-  salesforce: ["salesforce.com", "salesforce.wd1.myworkdayjobs.com"],
-  flipkart: ["flipkart.com", "flipkartcareers.com"],
-  tcs: ["tcs.com", "ibegin.tcs.com"],
-  infosys: ["infosys.com", "careers.infosys.com"],
-  wipro: ["wipro.com", "careers.wipro.com"]
-};
+  // Load scan history on mount
+  useEffect(() => {
+    setHistoryList(getScanHistory());
+  }, []);
 
-const trustedHiringDomains = [
-  "amazon.jobs",
-  "greenhouse.io",
-  "lever.co",
-  "workdayjobs.com",
-  "myworkdayjobs.com",
-  "smartrecruiters.com",
-  "ashbyhq.com",
-  "linkedin.com",
-  "naukri.com",
-  "indeed.com",
-  "wellfound.com",
-  "glassdoor.com"
-];
+  const historyStats = useMemo(() => {
+    return getSecurityStats(historyList);
+  }, [historyList]);
 
-const freeEmailDomains = [
-  "gmail.com",
-  "yahoo.com",
-  "outlook.com",
-  "hotmail.com",
-  "proton.me",
-  "protonmail.com",
-  "icloud.com",
-  "aol.com",
-  "rediffmail.com",
-  "mail.com"
-];
+  const threatIntel = useMemo(() => {
+    return getThreatIntelStatus();
+  }, []);
 
-const suspiciousUrlKeywords = [".xyz", ".top", ".click", ".work", ".loan", ".biz", "bit.ly", "tinyurl.com", "t.co", "is.gd"];
+  // Live input heuristics
+  const liveEmailDomain = useMemo(() => {
+    return extractEmailDomain(formData.recruiterEmail);
+  }, [formData.recruiterEmail]);
 
-const scamTypesLibrary = [
-  {
-    title: "The Fake Check & Equipment Trap",
-    icon: AlertTriangle,
-    tag: "High Severity",
-    risk: "Financial Fraud",
-    desc: "Scammers send a counterfeit check to 'buy home office gear' from a specified vendor. When the check bounces days later, the victim loses their own transferred funds."
-  },
-  {
-    title: "The Upfront Training / Security Fee",
-    icon: ShieldAlert,
-    tag: "High Severity",
-    risk: "Payment Extortion",
-    desc: "Candidates are asked to pay ₹1,500 to ₹10,000 or $100-$500 for 'ID verification', 'onboarding background checks', or 'mandatory software training'."
-  },
-  {
-    title: "Telegram / WhatsApp-Only Interviews",
-    icon: Send,
-    tag: "Medium Severity",
-    risk: "Impersonation",
-    desc: "Fraudsters avoid video calls or corporate emails, conducting rapid text-based 'interviews' and extending immediate offers within minutes."
-  },
-  {
-    title: "Phishing & Fake Application Portals",
-    icon: Link2,
-    tag: "High Severity",
-    risk: "Identity Theft",
-    desc: "Cloned application pages on lookalike domains (.xyz, .top) that capture government IDs, social security numbers, and banking credentials."
-  },
-  {
-    title: "Pay-to-Work / Task Commission Schemes",
-    icon: Zap,
-    tag: "High Severity",
-    risk: "Ponzi Mechanics",
-    desc: "Promises of high daily income ($200-$500/day) for liking videos, typing captchas, or booking hotels after depositing cryptocurrency."
-  },
-  {
-    title: "Executive & Corporate Recruiter Impersonation",
-    icon: Building2,
-    tag: "Medium Severity",
-    risk: "Domain Spoofing",
-    desc: "Scammers use real recruiter names found on LinkedIn but contact candidates from generic Gmail or slightly misspelled lookalike domains."
-  }
-];
+  const liveEmailIsPublic = useMemo(() => {
+    return FREE_EMAIL_PROVIDERS.includes(liveEmailDomain);
+  }, [liveEmailDomain]);
 
-function includesAny(text: string, patterns: RegExp[]) {
-  return patterns.some((pattern) => pattern.test(text));
-}
+  const liveUrlParsed = useMemo(() => {
+    return extractUrlHostname(formData.applicationUrl);
+  }, [formData.applicationUrl]);
 
-function clampScore(score: number) {
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
+  const liveAtsCheck = useMemo(() => {
+    return findRecognizedAts(liveUrlParsed.hostname);
+  }, [liveUrlParsed.hostname]);
 
-function riskLevel(score: number): RiskLevel {
-  if (score >= 65) return "HIGH";
-  if (score >= 35) return "MEDIUM";
-  return "LOW";
-}
-
-function getDomain(value: string) {
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return "";
-  try {
-    const withProtocol = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
-    return new URL(withProtocol).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
-function getEmailDomain(email: string) {
-  const parts = email.trim().toLowerCase().split("@");
-  return parts.length === 2 ? parts[1] : "";
-}
-
-function normalizeCompany(companyName: string) {
-  return companyName
-    .toLowerCase()
-    .replace(/\b(private|pvt|limited|ltd|inc|llc|corp|corporation|technologies|technology|solutions|services|group)\b/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function domainMatchesCompany(domain: string, companyName: string) {
-  const company = normalizeCompany(companyName);
-  if (!domain || company.length < 3) return false;
-  return domain.replace(/[^a-z0-9]/g, "").includes(company);
-}
-
-function getKnownDomains(companyName: string) {
-  const company = normalizeCompany(companyName);
-  return Object.entries(knownCompanyDomains).find(([key]) => company.includes(key))?.[1] ?? [];
-}
-
-function hasTrustedHiringDomain(domain: string) {
-  return trustedHiringDomains.some((trustedDomain) => domain === trustedDomain || domain.endsWith(`.${trustedDomain}`));
-}
-
-function analyzeJob(data: JobFormData): AnalysisResult {
-  const description = data.jobDescription.toLowerCase();
-  const companyName = data.companyName.trim();
-  const fullText = `${description} ${companyName.toLowerCase()} ${data.recruiterEmail.toLowerCase()} ${data.applicationUrl.toLowerCase()}`;
-  const emailDomain = getEmailDomain(data.recruiterEmail);
-  const applicationDomain = getDomain(data.applicationUrl);
-  const knownDomains = getKnownDomains(companyName);
-  const emailMatchesCompany = domainMatchesCompany(emailDomain, companyName);
-  const applicationMatchesCompany = domainMatchesCompany(applicationDomain, companyName);
-  const applicationIsKnownForCompany = knownDomains.some(
-    (domain) => applicationDomain === domain || applicationDomain.endsWith(`.${domain}`)
-  );
-  const applicationIsTrusted = hasTrustedHiringDomain(applicationDomain);
-
-  const findings: Finding[] = [];
-  const positives: string[] = [];
-  let baseScore = 15;
-
-  let paymentRiskScore = 10;
-  let domainTrustScore = 50;
-  let commTrustScore = 60;
-  let pressureRiskScore = 10;
-  let compRealismScore = 70;
-
-  const addFinding = (finding: Finding, points: number) => {
-    findings.push(finding);
-    baseScore += points;
-  };
-
-  const addPositive = (text: string, points: number) => {
-    positives.push(text);
-    baseScore -= points;
-  };
-
-  // 1. Payment Risk Analysis
-  if (
-    includesAny(fullText, [
-      /\b(registration|processing|security|application|training|onboarding|equipment|laptop|kit)\s*(fee|fees|charge|charges|deposit|cost)\b/,
-      /\bdeposit\b/,
-      /\bpay\s*(rs|inr|\u20b9|\$)?\s*\d+/,
-      /\bpay\s*money\b/,
-      /\bpay\s*to\s*apply\b/,
-      /\bsecurity\s*amount\b/,
-      /\brefundable\s*deposit\b/
-    ])
-  ) {
-    paymentRiskScore = 95;
-    addFinding(
-      {
-        id: "payment-fee",
-        category: "payment",
-        title: "Upfront Payment or Deposit Demand",
-        why: "Legitimate employers never require applicants to pay onboarding, training, equipment, or processing deposits.",
-        action: "Do not transfer money or share UPI/banking credentials. Verify independently with official HR.",
-        severity: "high"
-      },
-      38
-    );
-  } else {
-    paymentRiskScore = 10;
-    addPositive("No upfront fee or security deposit requirement detected.", 8);
-  }
-
-  // 2. Sensitive Financial/Identity data
-  if (
-    includesAny(fullText, [
-      /\botp\b/,
-      /\bpassword\b/,
-      /\bbank\s*(pin|password|details|account)\b/,
-      /\bcredit\s*card\b/,
-      /\bdebit\s*card\b/,
-      /\bupi\s*pin\b/,
-      /\bnet\s*banking\b/,
-      /\baadhaar\s*otp\b/
-    ])
-  ) {
-    paymentRiskScore = Math.max(paymentRiskScore, 90);
-    addFinding(
-      {
-        id: "financial-credentials",
-        category: "identity",
-        title: "Direct Request for Financial or Authentication Credentials",
-        why: "Requests for OTPs, PINs, or banking passwords during hiring are unambiguous fraud indicators.",
-        action: "Immediately discontinue communication and report the contact.",
-        severity: "high"
-      },
-      40
-    );
-  }
-
-  // 3. Guaranteed job after payment
-  if (
-    includesAny(fullText, [
-      /\bpay\s*(to|and)\s*(get|secure|confirm)\s*(the\s*)?job\b/,
-      /\bjob\s*(guaranteed|confirmation)\s*(after|once)\s*payment\b/
-    ])
-  ) {
-    addFinding(
-      {
-        id: "pay-to-secure",
-        category: "payment",
-        title: "Guaranteed Placement via Payment",
-        why: "Offers conditioned on payment are illegal in many jurisdictions and universally indicative of job scams.",
-        action: "Disregard this offer. Authentic positions are earned through evaluated interviews.",
-        severity: "high"
-      },
-      30
-    );
-  }
-
-  // 4. Urgency & Psychological Pressure
-  if (
-    includesAny(fullText, [
-      /\burgent\b/,
-      /\bimmediate\s*(joining|selection|hiring)\b/,
-      /\bact\s*now\b/,
-      /\bwithin\s*(12|24|48)\s*hours\b/,
-      /\blimited\s*slots?\b/,
-      /\bfinal\s*chance\b/,
-      /\boffer\s*expires\s*today\b/
-    ])
-  ) {
-    pressureRiskScore = 85;
-    addFinding(
-      {
-        id: "extreme-urgency",
-        category: "pressure",
-        title: "High-Pressure Urgency Tactics",
-        why: "Imposing tight arbitrary deadlines is designed to rush candidates past normal due diligence and company verification.",
-        action: "Pause and independently confirm with the company's verified hiring desk before responding.",
-        severity: "high"
-      },
-      18
-    );
-  } else {
-    pressureRiskScore = 15;
-  }
-
-  // 5. Compensation Realism
-  const hasHighSalary = includesAny(fullText, [
-    /\b(₹|rs\.?|inr)\s?(1,?00,?000|[2-9]\d,?000|[1-9]\d,?00,?000)\s*(per\s*)?(month|week|day)\b/,
-    /\b([3-9]\d|[1-9]\d{2})\s*lpa\b/,
-    /\b(usd|\$)\s?([3-9]\d{3}|[1-9]\d{4,})\s*(per\s*)?(month|week)\b/
-  ]);
-  const hasNoExperience = includesAny(fullText, [
-    /\bno\s*experience\s*(required|needed)?\b/,
-    /\bfreshers?\s*(welcome|can apply)\b/,
-    /\bno\s*interview\b/,
-    /\btyping\s*job\b/,
-    /\bdata\s*entry\b.*\b(high\s*pay|\$4,000|\$5,000|₹\d{5,})\b/
-  ]);
-
-  if (hasHighSalary && hasNoExperience) {
-    compRealismScore = 20;
-    addFinding(
-      {
-        id: "unrealistic-compensation",
-        category: "salary",
-        title: "Disproportionate Salary vs. Entry-Level Requirement",
-        why: "Promising executive-level compensation for zero-skill, work-from-home tasks is the primary hook in recruitment fraud.",
-        action: "Benchmark against standard salary indices (Glassdoor, Levels.fyi) for realistic market bands.",
-        severity: "high"
-      },
-      22
-    );
-  } else if (hasHighSalary) {
-    compRealismScore = 55;
-    addFinding(
-      {
-        id: "elevated-compensation",
-        category: "salary",
-        title: "High Compensation Band Noted",
-        why: "The salary is significantly above typical median brackets and warrants additional verification.",
-        action: "Ensure compensation terms are backed by an official written contract from HR.",
-        severity: "medium"
-      },
-      10
-    );
-  } else {
-    compRealismScore = 85;
-  }
-
-  // 6. Communication Channels
-  if (
-    includesAny(description, [
-      /\bkindly\b.*\bwhatsapp\b/,
-      /\bwhatsapp\s*(only|msg|message)\b/,
-      /\btelegram\b/,
-      /\btext\s*me\b/,
-      /\bcall\s*now\b/,
-      /\bskype\s*interview\s*only\b/
-    ])
-  ) {
-    commTrustScore = 20;
-    addFinding(
-      {
-        id: "informal-channel",
-        category: "communication",
-        title: "Informal Instant Messaging Interview Channel",
-        why: "Scammers frequently mandate Telegram/WhatsApp to prevent domain verification and create ephemeral trails.",
-        action: "Request official communication via the corporate company email server or video portal.",
-        severity: "medium"
-      },
-      16
-    );
-  } else {
-    commTrustScore = 75;
-  }
-
-  // 7. Company Name Evaluation
-  if (companyName.length < 3 || includesAny(companyName.toLowerCase(), [/\bcompany\b/, /\bprivate\b/, /\bconfidential\b/, /\bnot disclosed\b/])) {
-    domainTrustScore -= 20;
-    addFinding(
-      {
-        id: "vague-company",
-        category: "domain",
-        title: "Unspecified or Obscured Employer Identity",
-        why: "Omitting the registered legal entity prevents basic corporate background validation.",
-        action: "Ask for the registered entity name and its corporate registration number (CIN / DUNS).",
-        severity: "medium"
-      },
-      14
-    );
-  } else {
-    addPositive("Company name was provided, enabling direct verification on registries and LinkedIn.", 5);
-  }
-
-  // 8. Recruiter Email Evaluation
-  if (!data.recruiterEmail.trim()) {
-    commTrustScore -= 15;
-    addFinding(
-      {
-        id: "missing-email",
-        category: "communication",
-        title: "No Recruiter Email Provided",
-        why: "Without a recruiter email address, domain authenticity cannot be validated.",
-        action: "Ask the contact person for their official company email handle.",
-        severity: "medium"
-      },
-      8
-    );
-  } else if (!emailDomain) {
-    commTrustScore = 15;
-    addFinding(
-      {
-        id: "invalid-email-format",
-        category: "communication",
-        title: "Malformed Recruiter Email",
-        why: "Invalid email structures prevent automated security checks.",
-        action: "Verify the contact's email address.",
-        severity: "medium"
-      },
-      12
-    );
-  } else if (freeEmailDomains.includes(emailDomain)) {
-    commTrustScore = 25;
-    addFinding(
-      {
-        id: "free-email-domain",
-        category: "communication",
-        title: `Recruiter Uses Free Public Provider (@${emailDomain})`,
-        why: `Established enterprises almost never conduct corporate recruiting from personal free email accounts (${emailDomain}).`,
-        action: "Verify the recruiter's identity on LinkedIn and seek an email from the official company domain.",
-        severity: "high"
-      },
-      24
-    );
-  } else if (emailMatchesCompany) {
-    commTrustScore = 90;
-    addPositive(`Recruiter email domain (@${emailDomain}) matches the company identity.`, 14);
-  } else {
-    commTrustScore = 35;
-    addFinding(
-      {
-        id: "mismatched-email-domain",
-        category: "communication",
-        title: `Mismatched Email Domain (@${emailDomain})`,
-        why: `The recruiter's domain does not correlate with '${companyName}'. This may indicate an agency or impersonation attempt.`,
-        action: "Confirm with the employer whether this agency or domain is an authorized hiring partner.",
-        severity: "medium"
-      },
-      16
-    );
-  }
-
-  // 9. Application URL Evaluation
-  if (!data.applicationUrl.trim()) {
-    domainTrustScore -= 10;
-    addFinding(
-      {
-        id: "missing-url",
-        category: "domain",
-        title: "No Direct Application URL",
-        why: "Direct links allow cross-checking against official ATS platforms (Workday, Greenhouse, Lever).",
-        action: "Search for the job listing directly on the company's official /careers portal.",
-        severity: "low"
-      },
-      6
-    );
-  } else if (!applicationDomain) {
-    domainTrustScore = 20;
-    addFinding(
-      {
-        id: "invalid-url-format",
-        category: "domain",
-        title: "Invalid Application URL",
-        why: "Cannot parse a valid destination host from the provided link.",
-        action: "Do not open suspicious links or provide personal credentials.",
-        severity: "high"
-      },
-      18
-    );
-  } else if (suspiciousUrlKeywords.some((suffix) => applicationDomain.endsWith(suffix) || applicationDomain.includes(suffix))) {
-    domainTrustScore = 15;
-    addFinding(
-      {
-        id: "suspicious-url-tld",
-        category: "domain",
-        title: `Suspicious or Shortened Link (${applicationDomain})`,
-        why: "Shorteners (bit.ly) or high-risk TLDs (.xyz, .top, .work) are often deployed in phishing campaigns to obscure destination servers.",
-        action: "Never authenticate or enter credentials on URL shorteners or unfamiliar domains.",
-        severity: "high"
-      },
-      26
-    );
-  } else if (applicationIsKnownForCompany || applicationMatchesCompany || applicationIsTrusted) {
-    domainTrustScore = 92;
-    addPositive(`Application portal (${applicationDomain}) is a verified company domain or recognized ATS platform.`, 16);
-  } else {
-    domainTrustScore = 45;
-    addFinding(
-      {
-        id: "unrecognized-domain",
-        category: "domain",
-        title: `Unverified Application Portal (${applicationDomain})`,
-        why: "The destination host does not match the company or top certified hiring platforms.",
-        action: "Navigate manually to the company's main website and locate the Careers section.",
-        severity: "medium"
-      },
-      14
-    );
-  }
-
-  // Job description detail check
-  const wordCount = description.split(/\s+/).filter(Boolean).length;
-  const hasResponsibilities = includesAny(description, [
-    /\bresponsibilit(y|ies)\b/,
-    /\brequirements?\b/,
-    /\bqualification(s)?\b/,
-    /\bexperience\b/,
-    /\bskills?\b/,
-    /\bcollaborate\b/
-  ]);
-
-  if (wordCount < 30) {
-    addFinding(
-      {
-        id: "thin-description",
-        category: "pressure",
-        title: "Sparse Job Description",
-        why: "Legitimate job specifications outline clear technical expectations, qualifications, and role responsibilities.",
-        action: "Request the full job description and rubric before proceeding.",
-        severity: "medium"
-      },
-      12
-    );
-  } else if (hasResponsibilities) {
-    addPositive("Job description contains detailed role responsibilities and qualifications.", 8);
-  }
-
-  const finalScore = clampScore(baseScore);
-  const level = riskLevel(finalScore);
-  const actions = findings.length
-    ? Array.from(new Set(findings.map((finding) => finding.action))).slice(0, 5)
-    : [
-        "Proceed via the official company careers portal.",
-        "Keep tax identification, SSN, and banking data private until a formal offer letter is executed.",
-        "Archive a copy of this job posting and correspondence for your personal records."
-      ];
-
-  return {
-    score: finalScore,
-    level,
-    findings,
-    positives,
-    actions,
-    summary:
-      findings.length > 0
-        ? `JobLens detected ${findings.length} warning flag${findings.length === 1 ? "" : "s"} and ${positives.length} trust signal${positives.length === 1 ? "" : "s"} across the submitted job parameters.`
-        : "No significant recruitment scam red flags were detected in the submitted information. Always confirm offers directly via official channels.",
-    dimensions: {
-      paymentRisk: clampScore(paymentRiskScore),
-      domainTrust: clampScore(domainTrustScore),
-      communicationTrust: clampScore(commTrustScore),
-      pressureRisk: clampScore(pressureRiskScore),
-      compensationRealism: clampScore(compRealismScore)
-    }
-  };
-}
-
-export default function HomePage() {
-  const [screen, setScreen] = useState<Screen>("home");
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [formData, setFormData] = useState<JobFormData>(emptyForm);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-
-  const loadingSteps = [
-    "Parsing job description & payment triggers...",
-    "Verifying recruiter email against corporate registries...",
-    "Inspecting application URL & TLS domain heuristics...",
-    "Calculating risk dimensions & safety score..."
-  ];
-
-  function updateField(field: keyof JobFormData, value: string) {
-    setFormData((current) => ({ ...current, [field]: value }));
-    if (error) setError("");
-  }
-
-  function applyPreset(preset: (typeof samplePresets)[0]) {
+  // Handle Preset Selection
+  const handleLoadPreset = (presetIndex: number) => {
+    const demo = DEMO_PRESET_SCANS[presetIndex];
+    if (!demo) return;
     setFormData({
-      companyName: preset.company,
-      recruiterEmail: preset.email,
-      applicationUrl: preset.url,
-      jobDescription: preset.description
+      jobTitle: demo.jobTitle || "",
+      companyName: demo.companyName,
+      recruiterEmail: demo.recruiterEmail === "N/A" ? "" : demo.recruiterEmail,
+      applicationUrl: demo.applicationUrl === "N/A" ? "" : demo.applicationUrl,
+      jobDescription: demo.jobDescription,
+      emailHeaders: ""
     });
-    setError("");
-    setScreen("analyze");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
+    setCurrentScreen("analyze");
+  };
 
-  function handleAnalyze() {
-    if (!formData.jobDescription.trim() || !formData.companyName.trim()) {
-      setError("Please provide at least the Company Name and Job Description to scan.");
+  // Run Real Threat Scan
+  const handleStartScan = () => {
+    if (!formData.jobDescription.trim() && !formData.companyName.trim() && !formData.recruiterEmail.trim()) {
       return;
     }
 
-    setIsLoading(true);
-    setError("");
-    setLoadingStep(0);
+    setIsScanning(true);
+    setScanStep(1);
 
-    const stepInterval = setInterval(() => {
-      setLoadingStep((prev) => (prev < loadingSteps.length - 1 ? prev + 1 : prev));
-    }, 280);
+    setTimeout(() => setScanStep(2), 350);
+    setTimeout(() => setScanStep(3), 700);
+    setTimeout(() => setScanStep(4), 1050);
 
     setTimeout(() => {
-      clearInterval(stepInterval);
-      const result = analyzeJob(formData);
-      setAnalysisResult(result);
-      setIsLoading(false);
-      setScreen("results");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }, 1200);
-  }
+      const report = runThreatAnalysis(formData);
+      setCurrentReport(report);
+      saveScanReport(report);
+      setHistoryList(getScanHistory());
+      setIsScanning(false);
+      setScanStep(0);
+      setCurrentScreen("results");
+    }, 1400);
+  };
 
-  function resetForm() {
-    setFormData(emptyForm);
-    setAnalysisResult(null);
-    setError("");
-    setScreen("analyze");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function handleCopyReport() {
-    if (!result) return;
-    const text = `
-=== JOBLENS RECRUITMENT RISK REPORT ===
-Company: ${formData.companyName || "N/A"}
-Risk Score: ${result.score}/100 (${result.level} RISK)
-Date: ${new Date().toLocaleDateString()}
-
-Summary: ${result.summary}
-
-FLAGGED WARNINGS:
-${result.findings.map((f, i) => `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}\n   Why: ${f.why}\n   Action: ${f.action}`).join("\n\n")}
-
-TRUST SIGNALS:
-${result.positives.map((p) => `• ${p}`).join("\n")}
-
-RECOMMENDED NEXT STEPS:
-${result.actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
-========================================
-Generated by JobLens Scam Radar
-`.trim();
-
+  const handleCopyReport = () => {
+    if (!currentReport) return;
+    const text = formatReportAsPlainText(currentReport);
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2200);
-  }
+    setCopiedReport(true);
+    setTimeout(() => setCopiedReport(false), 2500);
+  };
 
-  const result = analysisResult ?? analyzeJob(formData);
+  const handleDownloadReport = (format: "txt" | "json") => {
+    if (!currentReport) return;
+    let content = "";
+    let mimeType = "text/plain";
+    let fileName = `joblens-threat-report-${currentReport.id}`;
 
-  // Live validation helpers for immediate feedback
-  const liveEmailDomain = useMemo(() => getEmailDomain(formData.recruiterEmail), [formData.recruiterEmail]);
-  const isFreeEmail = useMemo(() => freeEmailDomains.includes(liveEmailDomain), [liveEmailDomain]);
-  const liveUrlDomain = useMemo(() => getDomain(formData.applicationUrl), [formData.applicationUrl]);
-  const isTrustedUrl = useMemo(() => hasTrustedHiringDomain(liveUrlDomain), [liveUrlDomain]);
+    if (format === "json") {
+      content = JSON.stringify(currentReport, null, 2);
+      mimeType = "application/json";
+      fileName += ".json";
+    } else {
+      content = formatReportAsPlainText(currentReport);
+      fileName += ".txt";
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteHistory = (id: string) => {
+    deleteScanReport(id);
+    setHistoryList(getScanHistory());
+  };
+
+  const handleClearHistory = () => {
+    clearAllScanReports();
+    setHistoryList([]);
+  };
+
+  const getSeverityBadgeClass = (severity: ThreatSeverity) => {
+    switch (severity) {
+      case "CRITICAL":
+        return "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30";
+      case "HIGH":
+        return "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30";
+      case "MEDIUM":
+        return "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30";
+      case "LOW":
+        return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30";
+    }
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-red-500 stroke-red-500";
+    if (score >= 60) return "text-orange-500 stroke-orange-500";
+    if (score >= 30) return "text-amber-500 stroke-amber-500";
+    return "text-emerald-500 stroke-emerald-500";
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
-      {/* Background decoration */}
-      <div className="fixed inset-0 pointer-events-none z-0 subtle-grid opacity-60 dark:opacity-30" />
-
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-950/80">
-        <div className="container mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <button
-            className="flex items-center gap-3 text-left focus:outline-none group"
-            onClick={() => setScreen("home")}
-            type="button"
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+      {/* TOP CYBERSECURITY HEADER */}
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <div
+            id="brand-logo"
+            onClick={() => setCurrentScreen("home")}
+            className="flex items-center gap-3 cursor-pointer select-none group"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <ShieldCheck className="h-5 w-5" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-700 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
-                  Job<span className="text-blue-600 dark:text-blue-400">Lens</span>
+                <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 dark:from-white dark:via-indigo-200 dark:to-blue-200 bg-clip-text text-transparent">
+                  JOBLENS
                 </span>
-                <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50">
-                  <Zap className="h-2.5 w-2.5" /> Heuristic AI
+                <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-300/40">
+                  v2.4 CyberSec
                 </span>
               </div>
-              <span className="hidden sm:block text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                Recruitment Scam & Offer Detector
-              </span>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 -mt-0.5 font-medium">
+                Recruitment Threat Intelligence Engine
+              </p>
             </div>
-          </button>
+          </div>
 
-          <nav className="flex items-center gap-1.5 sm:gap-2">
-            <Button
-              className="text-xs sm:text-sm"
-              onClick={() => setScreen("home")}
-              size="sm"
-              variant={screen === "home" ? "secondary" : "ghost"}
+          {/* NAVIGATION BAR */}
+          <nav className="hidden md:flex items-center gap-1 text-xs font-medium">
+            <button
+              id="nav-extension-btn"
+              onClick={() => setCurrentScreen("extension")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "extension"
+                  ? "bg-sky-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
             >
-              Home
-            </Button>
-            <Button
-              className="text-xs sm:text-sm"
-              onClick={() => setScreen("analyze")}
-              size="sm"
-              variant={screen === "analyze" ? "secondary" : "ghost"}
-            >
-              Scanner
-            </Button>
-            <Button
-              className="hidden md:inline-flex text-xs sm:text-sm"
-              onClick={() => setScreen("radar")}
-              size="sm"
-              variant={screen === "radar" ? "secondary" : "ghost"}
-            >
-              Scam Radar
-            </Button>
-            <Button
-              className="hidden md:inline-flex text-xs sm:text-sm"
-              onClick={() => setScreen("safety")}
-              size="sm"
-              variant={screen === "safety" ? "secondary" : "ghost"}
-            >
-              Safety Toolkit
-            </Button>
+              <Shield className="w-3.5 h-3.5" />
+              <span>Live Extension</span>
+            </button>
 
-            <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1" />
-
-            <ThemeToggle />
-
-            <Button
-              className="hidden sm:inline-flex bg-blue-600 hover:bg-blue-700 text-white shadow-sm font-medium text-xs sm:text-sm"
-              onClick={() => setScreen("analyze")}
-              size="sm"
+            <button
+              id="nav-scanner-btn"
+              onClick={() => setCurrentScreen("analyze")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "analyze" || currentScreen === "results"
+                  ? "bg-indigo-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
             >
-              <Sparkles className="h-3.5 w-3.5 mr-1" /> Scan Job Offer
-            </Button>
+              <Search className="w-3.5 h-3.5" />
+              <span>Deep Scanner</span>
+            </button>
+
+            <button
+              id="nav-radar-btn"
+              onClick={() => setCurrentScreen("radar")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "radar"
+                  ? "bg-indigo-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Scam Radar</span>
+            </button>
+
+            <button
+              id="nav-hub-btn"
+              onClick={() => {
+                setHistoryList(getScanHistory());
+                setCurrentScreen("dashboard");
+              }}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "dashboard"
+                  ? "bg-indigo-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>History</span>
+              {historyList.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  {historyList.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              id="nav-safety-btn"
+              onClick={() => setCurrentScreen("safety")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "safety"
+                  ? "bg-indigo-600 text-white shadow-sm font-semibold"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
+            >
+              <ClipboardCheck className="w-3.5 h-3.5" />
+              <span>Safety Toolkit</span>
+            </button>
+
+            <button
+              id="nav-download-btn"
+              onClick={() => setCurrentScreen("download")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentScreen === "download"
+                  ? "bg-sky-600 text-white font-semibold shadow-sm"
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              }`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Install (.zip)</span>
+            </button>
           </nav>
+
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button
+              id="header-scan-now-btn"
+              size="sm"
+              onClick={() => setCurrentScreen("analyze")}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1" />
+              Deep Scan
+            </Button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 z-10">
-        <AnimatePresence mode="wait">
-          {/* SCREEN: HOME */}
-          {screen === "home" && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              {/* Hero Section */}
-              <section className="relative overflow-hidden pt-12 pb-20 md:pt-16 md:pb-28">
-                <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                  <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
-                    <div className="lg:col-span-7 text-center lg:text-left space-y-6">
-                      <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50/80 px-3.5 py-1 text-xs font-semibold text-blue-700 shadow-sm dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300">
-                        <ShieldCheck className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                        <span>Instant Scam Risk Scanner for Job Seekers</span>
-                      </div>
+      {/* MAIN BODY CONTENT AREA */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5">
+        {/* ========================================================================= */}
+        {/* SCREEN 0: PRIMARY CHROME EXTENSION LIVE SIMULATOR */}
+        {/* ========================================================================= */}
+        {currentScreen === "extension" && (
+          <div className="space-y-4 animate-in fade-in duration-300">
+            {/* Interactive Browser & Side Panel Simulator */}
+            <ExtensionSimulator
+              onOpenFullReport={(report) => {
+                setCurrentReport(report);
+                setCurrentScreen("results");
+              }}
+            />
+          </div>
+        )}
 
-                      <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-5xl lg:text-6xl leading-[1.12]">
-                        See beyond the job posting.{" "}
-                        <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                          Spot scams instantly.
-                        </span>
-                      </h1>
+        {/* ========================================================================= */}
+        {/* SCREEN: DOWNLOAD EXTENSION & SETUP GUIDE */}
+        {/* ========================================================================= */}
+        {currentScreen === "download" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+                Chrome Extension Installation
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Load the Manifest V3 package directly in Google Chrome, Brave, Edge, or Chromium browsers.
+              </p>
+            </div>
+            <ExtensionDownloadCard />
+          </div>
+        )}
+        {/* ========================================================================= */}
+        {/* SCREEN 1: HOME / LANDING OVERVIEW */}
+        {/* ========================================================================= */}
+        {currentScreen === "home" && (
+          <div className="space-y-12 animate-in fade-in duration-300">
+            {/* HERO BANNER */}
+            <div className="relative overflow-hidden rounded-3xl border border-slate-200 dark:border-slate-800 bg-gradient-to-b from-white via-indigo-50/30 to-white dark:from-slate-900 dark:via-indigo-950/20 dark:to-slate-900 p-8 sm:p-12 shadow-sm">
+              <div className="absolute -right-16 -top-16 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -left-16 -bottom-16 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-                      <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto lg:mx-0 leading-relaxed">
-                        Fake recruiters steal billions through upfront equipment fees, Telegram interviews, and spoofed domains.
-                        JobLens analyzes job offers against 20+ fraud indicators before you share your resume or credentials.
-                      </p>
-
-                      <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
-                        <Button
-                          className="w-full sm:w-auto h-12 px-7 text-base bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20 font-semibold"
-                          onClick={() => setScreen("analyze")}
-                        >
-                          <Search className="h-4 w-4 mr-2" />
-                          Scan a Job Offer Now
-                        </Button>
-                        <Button
-                          className="w-full sm:w-auto h-12 px-6 text-base font-semibold"
-                          onClick={() => applyPreset(samplePresets[0])}
-                          variant="outline"
-                        >
-                          <AlertTriangle className="h-4 w-4 mr-2 text-amber-500" />
-                          Try Scam Demo
-                        </Button>
-                      </div>
-
-                      {/* Quick Stats Grid */}
-                      <div className="pt-8 grid grid-cols-3 gap-4 border-t border-slate-200/80 dark:border-slate-800/80 max-w-lg mx-auto lg:mx-0">
-                        <div>
-                          <p className="text-2xl font-black text-slate-900 dark:text-white">20+</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Scam Red Flags</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-black text-blue-600 dark:text-blue-400">100%</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Client-Side Private</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">&lt;1s</p>
-                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Analysis Speed</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Interactive Live Preview Card */}
-                    <div className="lg:col-span-5">
-                      <Card className="relative overflow-hidden rounded-2xl border-slate-200/80 bg-white/95 shadow-2xl shadow-slate-200/60 dark:border-slate-800/80 dark:bg-slate-900/95 dark:shadow-none backdrop-blur-sm">
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-amber-500 to-emerald-500" />
-                        <CardHeader className="pb-4">
-                          <div className="flex items-center justify-between">
-                            <Badge className="bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800">
-                              <ShieldAlert className="h-3 w-3 mr-1" /> High Risk Detected
-                            </Badge>
-                            <span className="text-xs font-mono font-medium text-slate-500 dark:text-slate-400">
-                              Rule Scanner v2.4
-                            </span>
-                          </div>
-                          <CardTitle className="text-lg pt-2 font-bold text-slate-900 dark:text-white">
-                            Live Scam Simulation
-                          </CardTitle>
-                          <CardDescription className="text-xs">
-                            Heuristic breakdown of a typical work-from-home fee trap
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4 pt-0">
-                          <div className="rounded-xl border border-red-200/80 bg-red-50/80 p-4 dark:border-red-900/50 dark:bg-red-950/40">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold uppercase tracking-wider text-red-700 dark:text-red-300">
-                                Calculated Threat Score
-                              </span>
-                              <span className="text-2xl font-black text-red-600 dark:text-red-400">88/100</span>
-                            </div>
-                            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-red-200/70 dark:bg-red-900/40">
-                              <div className="h-full bg-gradient-to-r from-red-500 to-red-600 w-[88%]" />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2 text-xs">
-                            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
-                              <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
-                              <div>
-                                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                  Equipment Deposit Demand:
-                                </span>
-                                <span className="text-slate-600 dark:text-slate-400 ml-1">
-                                  Requests ₹3,500 / $150 refundable MacBook shipping fee.
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
-                              <Mail className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
-                              <div>
-                                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                  Mismatched Recruiter Email:
-                                </span>
-                                <span className="text-slate-600 dark:text-slate-400 ml-1">
-                                  Uses free @gmail.com domain while claiming to be AWS.
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-start gap-2.5 rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
-                              <Send className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
-                              <div>
-                                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                  Chat-Only Interview:
-                                </span>
-                                <span className="text-slate-600 dark:text-slate-400 ml-1">
-                                  Candidate directed exclusively to Telegram handle.
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <Button
-                            className="w-full text-xs font-semibold"
-                            onClick={() => applyPreset(samplePresets[0])}
-                            size="sm"
-                            variant="secondary"
-                          >
-                            Inspect Full Analysis
-                            <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Sample Presets Quick-Test Section */}
-              <section className="py-14 bg-white/70 border-y border-slate-200/80 dark:bg-slate-900/40 dark:border-slate-800/80">
-                <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                  <div className="text-center max-w-2xl mx-auto mb-10">
-                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                      Quick Demo Scenarios
-                    </p>
-                    <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-                      Test real-world recruitment cases
-                    </h2>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                      Click any scenario below to auto-load the data and test the detector engine.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-3">
-                    {samplePresets.map((preset) => (
-                      <Card
-                        key={preset.id}
-                        className="rounded-xl border-slate-200/80 bg-white hover:border-blue-400 dark:border-slate-800 dark:bg-slate-900 hover:shadow-lg transition-all flex flex-col justify-between"
-                      >
-                        <CardHeader className="pb-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <Badge className={preset.badgeColor}>{preset.tag}</Badge>
-                            <span className="text-xs text-slate-400">{preset.company}</span>
-                          </div>
-                          <CardTitle className="text-base font-bold text-slate-900 dark:text-white">
-                            {preset.title}
-                          </CardTitle>
-                          <CardDescription className="text-xs line-clamp-3 mt-1 leading-relaxed">
-                            {preset.description}
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className="pt-0">
-                          <Button
-                            className="w-full text-xs font-semibold"
-                            onClick={() => applyPreset(preset)}
-                            variant="outline"
-                          >
-                            Load this offer into Scanner
-                            <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {/* 3-Step Work Flow */}
-              <section className="py-16">
-                <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                  <div className="text-center max-w-2xl mx-auto mb-12">
-                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                      How It Works
-                    </p>
-                    <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-                      Multi-layer threat inspection
-                    </h2>
-                  </div>
-
-                  <div className="grid gap-6 md:grid-cols-3">
-                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 mb-4 font-bold text-lg">
-                        1
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">Paste Job Parameters</h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                        Input the job description, recruiter email address, company name, and direct application URL.
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 mb-4 font-bold text-lg">
-                        2
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">Heuristic Evaluation</h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                        The engine evaluates payment keywords, email domain alignment, ATS domain trust, urgency triggers, and compensation ratios.
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200/80 bg-white p-6 dark:border-slate-800 dark:bg-slate-900/60 shadow-sm">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 mb-4 font-bold text-lg">
-                        3
-                      </div>
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">Actionable Safety Score</h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
-                        Review a 0-100 risk score, explainable signal breakdown, positive credibility markers, and safe verification steps.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </motion.div>
-          )}
-
-          {/* SCREEN: ANALYZE SCANNER */}
-          {screen === "analyze" && (
-            <motion.div
-              key="analyze"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="py-10 sm:py-14"
-            >
-              <div className="container mx-auto max-w-4xl px-4 sm:px-6">
-                <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
-                        <Sparkles className="h-3 w-3 mr-1" /> Job Scanner
-                      </Badge>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">Strictly Private & Client-Side</span>
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-                      Analyze a Job Opportunity
-                    </h1>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      Paste the details you received. We&apos;ll cross-reference domains, fee triggers, and scam patterns.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={() => applyPreset(samplePresets[0])}
-                      size="sm"
-                      variant="outline"
-                      className="text-xs"
-                    >
-                      <Zap className="h-3.5 w-3.5 mr-1 text-amber-500" />
-                      Fill Sample Scam
-                    </Button>
-                    <Button
-                      onClick={() => applyPreset(samplePresets[2])}
-                      size="sm"
-                      variant="outline"
-                      className="text-xs"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5 mr-1 text-emerald-500" />
-                      Fill Legit Job
-                    </Button>
-                  </div>
+              <div className="relative z-10 max-w-3xl space-y-6">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100/80 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-medium">
+                  <Terminal className="w-3.5 h-3.5" />
+                  <span>Omni_CyberTech_10 • Explainable Recruitment Threat Forensics</span>
                 </div>
 
-                <Card className="rounded-2xl border-slate-200/90 bg-white shadow-xl shadow-slate-200/50 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
-                  <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
-                    <CardTitle className="text-lg font-bold text-slate-900 dark:text-white flex items-center justify-between">
-                      <span>Job Opportunity Details</span>
-                      <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                        * Required fields
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6 pt-6">
-                    {/* Company Name & Recruiter Email */}
-                    <div className="grid gap-5 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="companyName" className="text-sm font-semibold flex items-center gap-1.5">
-                          <Building2 className="h-4 w-4 text-blue-500" />
-                          Company Name *
-                        </Label>
-                        <Input
-                          className="h-11 rounded-xl border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800"
-                          id="companyName"
-                          onChange={(e) => updateField("companyName", e.target.value)}
-                          placeholder="e.g. Amazon, Google, Flipkart, Apex Corp"
-                          value={formData.companyName}
-                        />
-                      </div>
+                <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.15]">
+                  See beyond the job posting. <br />
+                  <span className="bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                    Expose recruitment cyber threats before you apply.
+                  </span>
+                </h1>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="recruiterEmail" className="text-sm font-semibold flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Mail className="h-4 w-4 text-indigo-500" />
-                            Recruiter Email
-                          </span>
-                          {formData.recruiterEmail && (
-                            <span className="text-[11px] font-medium">
-                              {isFreeEmail ? (
-                                <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                                  ⚠️ Free public provider
-                                </span>
-                              ) : (
-                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                  ✓ Custom domain
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </Label>
-                        <Input
-                          className="h-11 rounded-xl border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800"
-                          id="recruiterEmail"
-                          onChange={(e) => updateField("recruiterEmail", e.target.value)}
-                          placeholder="e.g. recruiter@company.com"
-                          type="email"
-                          value={formData.recruiterEmail}
-                        />
-                      </div>
-                    </div>
+                <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
+                  JobLens is an explainable cybersecurity platform that dissects job offers, recruiter domains, communication channels, and email headers to detect advance-fee fraud, credential harvesting, credential spoofing, and social engineering.
+                </p>
 
-                    {/* Application URL */}
-                    <div className="space-y-2">
-                      <Label htmlFor="applicationUrl" className="text-sm font-semibold flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <Link2 className="h-4 w-4 text-blue-500" />
-                          Application URL / Portal Link
-                        </span>
-                        {formData.applicationUrl && (
-                          <span className="text-[11px] font-medium">
-                            {isTrustedUrl ? (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                ✓ Recognized ATS / Official Domain
-                              </span>
-                            ) : (
-                              <span className="text-slate-500 dark:text-slate-400">
-                                Domain: {liveUrlDomain || "Parsing..."}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </Label>
-                      <Input
-                        className="h-11 rounded-xl border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800"
-                        id="applicationUrl"
-                        onChange={(e) => updateField("applicationUrl", e.target.value)}
-                        placeholder="https://company.jobs/careers/... or https://greenhouse.io/..."
-                        type="url"
-                        value={formData.applicationUrl}
-                      />
-                    </div>
-
-                    {/* Full Job Description / Message */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="jobDescription" className="text-sm font-semibold flex items-center gap-1.5">
-                          <FileText className="h-4 w-4 text-purple-500" />
-                          Job Description & Recruiter Message *
-                        </Label>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          {formData.jobDescription.split(/\s+/).filter(Boolean).length} words
-                        </span>
-                      </div>
-                      <Textarea
-                        className="min-h-48 resize-y rounded-xl border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50 focus:bg-white dark:focus:bg-slate-800 p-4 leading-relaxed text-sm"
-                        id="jobDescription"
-                        onChange={(e) => updateField("jobDescription", e.target.value)}
-                        placeholder="Paste the full job posting, email text, WhatsApp/Telegram chat, salary offer, and any payment/onboarding instructions..."
-                        value={formData.jobDescription}
-                      />
-                    </div>
-
-                    {/* Error Banner */}
-                    {error && (
-                      <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-sm font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-                        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <span>{error}</span>
-                      </div>
-                    )}
-
-                    {/* Action Bar */}
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100 dark:border-slate-800/80 pt-5">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        <Lock className="h-3.5 w-3.5 text-emerald-600" />
-                        <span>No data is uploaded or stored on servers. Analyzed locally.</span>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                        <Button
-                          className="text-xs"
-                          onClick={() => setFormData(emptyForm)}
-                          type="button"
-                          variant="ghost"
-                        >
-                          Clear
-                        </Button>
-                        <Button
-                          className="flex-1 sm:flex-none h-12 px-7 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20"
-                          disabled={isLoading}
-                          onClick={handleAnalyze}
-                          type="button"
-                        >
-                          {isLoading ? (
-                            <div className="flex items-center gap-2">
-                              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                              <span>{loadingSteps[loadingStep]}</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <Sparkles className="h-4 w-4" />
-                              <span>Analyze Job Threat Score</span>
-                              <ArrowRight className="h-4 w-4" />
-                            </div>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </motion.div>
-          )}
-
-          {/* SCREEN: RESULTS REPORT */}
-          {screen === "results" && (
-            <motion.div
-              key="results"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="py-10 sm:py-14"
-            >
-              <div className="container mx-auto max-w-5xl px-4 sm:px-6">
-                {/* Header Actions */}
-                <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200">
-                        Scan ID: #{Math.floor(100000 + Math.random() * 900000)}
-                      </Badge>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">
-                        Target: {formData.companyName || "Unspecified Company"}
-                      </span>
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-                      Job Threat Analysis Report
-                    </h1>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button onClick={handleCopyReport} size="sm" variant="outline" className="text-xs">
-                      {copied ? (
-                        <>
-                          <Check className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Copied Report
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3.5 w-3.5 mr-1" /> Copy Summary
-                        </>
-                      )}
-                    </Button>
-                    <Button onClick={resetForm} size="sm" className="text-xs bg-blue-600 hover:bg-blue-700 text-white">
-                      <RotateCcw className="h-3.5 w-3.5 mr-1" /> Analyze Another
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Score & Dimension Overview */}
-                <div className="grid gap-6 lg:grid-cols-12 mb-8">
-                  {/* Radial / Gauge Score Card */}
-                  <Card className="lg:col-span-5 rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md flex flex-col justify-between">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center justify-between">
-                        <span>Threat Risk Score</span>
-                        <Badge
-                          className={
-                            result.level === "HIGH"
-                              ? "bg-red-500/10 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
-                              : result.level === "MEDIUM"
-                              ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
-                              : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                          }
-                        >
-                          {result.level} RISK
-                        </Badge>
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Overall probability of fraudulent intent or deception
-                      </CardDescription>
-                    </CardHeader>
-
-                    <CardContent className="py-6 flex flex-col items-center justify-center">
-                      <div className="relative flex items-center justify-center">
-                        <svg className="h-44 w-44 -rotate-90 transform" viewBox="0 0 100 100">
-                          <circle
-                            className="text-slate-100 dark:text-slate-800"
-                            cx="50"
-                            cy="50"
-                            r="40"
-                            stroke="currentColor"
-                            strokeWidth="8"
-                            fill="transparent"
-                          />
-                          <circle
-                            className={
-                              result.level === "HIGH"
-                                ? "text-red-500"
-                                : result.level === "MEDIUM"
-                                ? "text-amber-500"
-                                : "text-emerald-500"
-                            }
-                            cx="50"
-                            cy="50"
-                            r="40"
-                            stroke="currentColor"
-                            strokeWidth="8"
-                            strokeDasharray="251.2"
-                            strokeDashoffset={251.2 - (251.2 * result.score) / 100}
-                            strokeLinecap="round"
-                            fill="transparent"
-                            style={{ transition: "stroke-dashoffset 0.8s ease" }}
-                          />
-                        </svg>
-
-                        <div className="absolute flex flex-col items-center justify-center text-center">
-                          <span className="text-4xl font-black text-slate-900 dark:text-white">
-                            {result.score}
-                          </span>
-                          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                            / 100 Points
-                          </span>
-                        </div>
-                      </div>
-
-                      <p className="text-center text-xs text-slate-600 dark:text-slate-400 mt-4 max-w-xs leading-relaxed">
-                        {result.level === "HIGH" && "High likelihood of recruitment scam. Do not transfer funds or share private IDs."}
-                        {result.level === "MEDIUM" && "Several suspicious markers identified. Cross-verify with the official company HR."}
-                        {result.level === "LOW" && "Consistent with typical authentic hiring patterns. Proceed with standard caution."}
-                      </p>
-                    </CardContent>
-                  </Card>
-
-                  {/* Multi-Dimensional Matrix */}
-                  <Card className="lg:col-span-7 rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base font-bold text-slate-900 dark:text-white">
-                        Risk Factor Breakdown
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Independent threat assessment across 5 core security vectors
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 pt-2">
-                      {/* Payment Risk */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                            <Lock className="h-3.5 w-3.5 text-red-500" />
-                            Upfront Payment / Fee Demand
-                          </span>
-                          <span className={result.dimensions.paymentRisk > 50 ? "text-red-600 font-bold" : "text-slate-500"}>
-                            {result.dimensions.paymentRisk > 50 ? "High Risk" : "Clean"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                          <div
-                            className="h-full bg-red-500 rounded-full transition-all duration-500"
-                            style={{ width: `${result.dimensions.paymentRisk}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Domain Trust */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                            <Building2 className="h-3.5 w-3.5 text-blue-500" />
-                            Company & Portal Domain Authenticity
-                          </span>
-                          <span className={result.dimensions.domainTrust > 70 ? "text-emerald-600 font-bold" : "text-amber-600"}>
-                            {result.dimensions.domainTrust > 70 ? "Trusted" : "Unverified"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                          <div
-                            className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                            style={{ width: `${result.dimensions.domainTrust}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Communication Trust */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                            <Mail className="h-3.5 w-3.5 text-purple-500" />
-                            Recruiter Contact Channel Trust
-                          </span>
-                          <span className={result.dimensions.communicationTrust > 70 ? "text-emerald-600 font-bold" : "text-amber-600"}>
-                            {result.dimensions.communicationTrust > 70 ? "Corporate Domain" : "Public / Unofficial"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                          <div
-                            className="h-full bg-purple-500 rounded-full transition-all duration-500"
-                            style={{ width: `${result.dimensions.communicationTrust}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Urgency & Pressure */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                            <Zap className="h-3.5 w-3.5 text-amber-500" />
-                            Urgency & Deadline Pressure
-                          </span>
-                          <span className={result.dimensions.pressureRisk > 60 ? "text-red-600 font-bold" : "text-slate-500"}>
-                            {result.dimensions.pressureRisk > 60 ? "Elevated Urgency" : "Standard"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                          <div
-                            className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                            style={{ width: `${result.dimensions.pressureRisk}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Salary Realism */}
-                      <div>
-                        <div className="flex items-center justify-between text-xs font-semibold mb-1">
-                          <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
-                            <Briefcase className="h-3.5 w-3.5 text-emerald-500" />
-                            Compensation-to-Skill Feasibility
-                          </span>
-                          <span className={result.dimensions.compensationRealism > 60 ? "text-emerald-600 font-bold" : "text-red-600"}>
-                            {result.dimensions.compensationRealism > 60 ? "Realistic" : "Suspiciously Inflated"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                          <div
-                            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                            style={{ width: `${result.dimensions.compensationRealism}%` }}
-                          />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Flagged Red Flags / Warning Signs */}
-                <div className="space-y-6">
-                  <Card className="rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md">
-                    <CardHeader className="border-b border-slate-100 dark:border-slate-800/80 pb-4">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          <ShieldAlert className="h-5 w-5 text-red-500" />
-                          Detected Red Flags & Threats ({result.findings.length})
-                        </CardTitle>
-                        <span className="text-xs text-slate-500">Heuristic Signals</span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-4">
-                      {result.findings.length > 0 ? (
-                        result.findings.map((finding) => (
-                          <div
-                            key={finding.id}
-                            className={`rounded-xl border p-4 transition-all ${
-                              finding.severity === "high"
-                                ? "border-red-200 bg-red-50/70 dark:border-red-900/40 dark:bg-red-950/20"
-                                : finding.severity === "medium"
-                                ? "border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/20"
-                                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5">
-                                {finding.severity === "high" && <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />}
-                                {finding.severity === "medium" && <Info className="h-5 w-5 text-amber-600 dark:text-amber-400" />}
-                                {finding.severity === "low" && <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
-                              </div>
-                              <div className="flex-1 space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                                    {finding.title}
-                                  </h4>
-                                  <Badge
-                                    className={`text-[10px] uppercase font-bold ${
-                                      finding.severity === "high"
-                                        ? "bg-red-600 text-white"
-                                        : "bg-amber-500 text-white"
-                                    }`}
-                                  >
-                                    {finding.severity} Severity
-                                  </Badge>
-                                </div>
-                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                                  <span className="font-semibold">Why this is dangerous:</span> {finding.why}
-                                </p>
-                                <div className="mt-2 rounded-lg bg-white/80 p-2.5 text-xs text-slate-800 dark:bg-slate-900/80 dark:text-slate-200 border border-slate-200/60 dark:border-slate-800">
-                                  <span className="font-semibold text-blue-600 dark:text-blue-400">Recommended Action:</span>{" "}
-                                  {finding.action}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-                          <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <div>
-                            <p className="font-bold text-sm">No Primary Scam Signals Detected</p>
-                            <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
-                              The submitted details do not contain payment traps or obvious domain mismatches.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Positive Trust Signals & Actionable Next Steps */}
-                  <div className="grid gap-6 md:grid-cols-2">
-                    {/* Positive Signals */}
-                    <Card className="rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          <FileCheck2 className="h-4 w-4 text-emerald-500" />
-                          Verified Trust Signals ({result.positives.length})
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-2.5">
-                          {result.positives.map((positive, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                              <span>{positive}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    </Card>
-
-                    {/* Action Checklist */}
-                    <Card className="rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                          <ClipboardCheck className="h-4 w-4 text-blue-500" />
-                          Candidate Safety Checklist
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-2.5">
-                          {result.actions.map((action, i) => (
-                            <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
-                              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                                {i + 1}
-                              </span>
-                              <span>{action}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* SCREEN: SCAM RADAR ENCYCLOPEDIA */}
-          {screen === "radar" && (
-            <motion.div
-              key="radar"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="py-10 sm:py-14"
-            >
-              <div className="container mx-auto max-w-6xl px-4 sm:px-6">
-                <div className="text-center max-w-2xl mx-auto mb-12">
-                  <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 mb-2">
-                    <ShieldAlert className="h-3 w-3 mr-1" /> Threat Knowledge Base
-                  </Badge>
-                  <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
-                    Common Recruitment Scam Types
-                  </h1>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                    Understand the most common fraud mechanics used by cybercriminals in 2026 to exploit job applicants.
-                  </p>
-                </div>
-
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {scamTypesLibrary.map((scam, i) => (
-                    <Card
-                      key={i}
-                      className="rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-sm hover:shadow-md transition-all"
-                    >
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                            <scam.icon className="h-5 w-5" />
-                          </div>
-                          <Badge variant="outline" className="text-[10px]">
-                            {scam.risk}
-                          </Badge>
-                        </div>
-                        <CardTitle className="text-base font-bold text-slate-900 dark:text-white">
-                          {scam.title}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                          {scam.desc}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-
-                <div className="mt-12 text-center">
+                <div className="flex flex-wrap items-center gap-4 pt-2">
                   <Button
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                    onClick={() => setScreen("analyze")}
+                    id="hero-start-scan-btn"
+                    size="lg"
+                    onClick={() => setCurrentScreen("analyze")}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 h-12 shadow-md shadow-indigo-500/20 flex items-center gap-2"
                   >
-                    <Search className="h-4 w-4 mr-2" />
-                    Scan Your Job Offer for These Patterns
+                    <span>Launch Threat Scanner</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+
+                  <Button
+                    id="hero-view-radar-btn"
+                    variant="outline"
+                    size="lg"
+                    onClick={() => setCurrentScreen("radar")}
+                    className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 h-12 px-5"
+                  >
+                    <Zap className="w-4 h-4 mr-2 text-amber-500" />
+                    <span>Explore Scam Radar</span>
                   </Button>
                 </div>
               </div>
-            </motion.div>
-          )}
+            </div>
 
-          {/* SCREEN: SAFETY TOOLKIT */}
-          {screen === "safety" && (
-            <motion.div
-              key="safety"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="py-10 sm:py-14"
-            >
-              <div className="container mx-auto max-w-5xl px-4 sm:px-6">
-                <div className="text-center max-w-2xl mx-auto mb-12">
-                  <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 mb-2">
-                    <ShieldCheck className="h-3 w-3 mr-1" /> Candidate Toolkit
-                  </Badge>
-                  <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white">
-                    Job Seeker Verification Toolkit
+            {/* ONE-CLICK TEST PRESETS */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-indigo-500" />
+                    One-Click Threat Simulation Scenarios
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Load verified deterministic cybersecurity test cases to inspect the engine&apos;s evaluation in real time.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* Preset 1: Critical Scam */}
+                <Card
+                  id="preset-scam-card"
+                  onClick={() => handleLoadPreset(0)}
+                  className="cursor-pointer hover:border-red-400 dark:hover:border-red-600/70 transition-all hover:shadow-md border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 group"
+                >
+                  <CardHeader className="p-5 pb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30">
+                        CRITICAL (92/100)
+                      </Badge>
+                      <span className="text-xs font-mono text-slate-400">Scenario #1</span>
+                    </div>
+                    <CardTitle className="text-base font-bold group-hover:text-red-600 transition-colors">
+                      Advance-Fee & Telegram Urgency Scam
+                    </CardTitle>
+                    <CardDescription className="text-xs line-clamp-2">
+                      Fake MacBook equipment deposit demand, public @gmail recruiter, 24h artificial pressure, and bit.ly link.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-5 pt-0 flex items-center justify-between text-xs font-medium text-red-600 dark:text-red-400">
+                    <span>Inspect Critical Threat</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </CardContent>
+                </Card>
+
+                {/* Preset 2: Moderate Warning */}
+                <Card
+                  id="preset-medium-card"
+                  onClick={() => handleLoadPreset(2)}
+                  className="cursor-pointer hover:border-amber-400 dark:hover:border-amber-600/70 transition-all hover:shadow-md border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 group"
+                >
+                  <CardHeader className="p-5 pb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30">
+                        MEDIUM (42/100)
+                      </Badge>
+                      <span className="text-xs font-mono text-slate-400">Scenario #2</span>
+                    </div>
+                    <CardTitle className="text-base font-bold group-hover:text-amber-600 transition-colors">
+                      Unverified Early-Stage Startup
+                    </CardTitle>
+                    <CardDescription className="text-xs line-clamp-2">
+                      Public email address and Google Forms intake link without enterprise ATS infrastructure.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-5 pt-0 flex items-center justify-between text-xs font-medium text-amber-600 dark:text-amber-400">
+                    <span>Inspect Medium Warning</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </CardContent>
+                </Card>
+
+                {/* Preset 3: Legitimate Enterprise */}
+                <Card
+                  id="preset-legit-card"
+                  onClick={() => handleLoadPreset(1)}
+                  className="cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-600/70 transition-all hover:shadow-md border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 group"
+                >
+                  <CardHeader className="p-5 pb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                        LOW RISK (12/100)
+                      </Badge>
+                      <span className="text-xs font-mono text-slate-400">Scenario #3</span>
+                    </div>
+                    <CardTitle className="text-base font-bold group-hover:text-emerald-600 transition-colors">
+                      Verified Enterprise Tech Role
+                    </CardTitle>
+                    <CardDescription className="text-xs line-clamp-2">
+                      Corporate @amazon.com recruiter domain, official amazon.jobs portal, structured technical interview loops.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-5 pt-0 flex items-center justify-between text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <span>Inspect Legitimate Profile</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            {/* CYBERSECURITY METHODOLOGY PILLARS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                <div className="w-9 h-9 rounded-lg bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center">
+                  <AlertOctagon className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-sm">Financial Fraud Interception</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Detects advance-fee traps, refundable equipment fees, crypto deposits, and fake check laundering schemes.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-sm">Domain & Recruiter Trust</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Flags disposable webmail, typosquatting homoglyphs, and recruiter domain-to-employer brand mismatches.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                <div className="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-sm">Credential & RAT Detection</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Uncovers AnyDesk/TeamViewer remote installation traps, OTP harvesting, and premature government ID requests.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <FileCode className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-sm">Email Header Forensics</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Inspects cryptographic SPF, DKIM, and DMARC origin headers to catch active sender address spoofing.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 2: THREAT SCANNER / INPUT FORM */}
+        {/* ========================================================================= */}
+        {currentScreen === "analyze" && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                    Cyber Threat Scanner
                   </h1>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                    Essential protocols to verify any recruiter or company before sharing personal documents.
+                  <Badge variant="outline" className="text-xs font-mono">
+                    Deterministic Engine
+                  </Badge>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Paste the job posting, offer email, recruiter details, and optional email headers to execute a full threat assessment.
+                </p>
+              </div>
+
+              {/* Quick load presets pill bar */}
+              <div className="flex items-center gap-1.5 bg-slate-200/60 dark:bg-slate-900 p-1 rounded-xl border border-slate-300/60 dark:border-slate-800 text-xs">
+                <span className="px-2 text-slate-500 font-medium hidden sm:inline">Presets:</span>
+                <button
+                  id="scanner-preset-scam"
+                  onClick={() => handleLoadPreset(0)}
+                  className="px-2.5 py-1 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-500/20 font-medium transition-colors"
+                >
+                  Scam (92)
+                </button>
+                <button
+                  id="scanner-preset-med"
+                  onClick={() => handleLoadPreset(2)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 font-medium transition-colors"
+                >
+                  Medium (42)
+                </button>
+                <button
+                  id="scanner-preset-legit"
+                  onClick={() => handleLoadPreset(1)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 font-medium transition-colors"
+                >
+                  Legit (12)
+                </button>
+              </div>
+            </div>
+
+            {/* Scanning Progress Overlay */}
+            {isScanning ? (
+              <Card className="border-indigo-300 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 p-8 sm:p-12 text-center space-y-6">
+                <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-indigo-200 dark:border-indigo-900 animate-ping opacity-50" />
+                  <div className="w-16 h-16 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin flex items-center justify-center">
+                    <ShieldAlert className="w-7 h-7 text-indigo-600" />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                    Executing Cybersecurity Diagnostic...
+                  </h3>
+                  <p className="text-sm font-mono text-indigo-600 dark:text-indigo-400">
+                    {scanStep === 1 && "Phase 1/4: Parsing domain infrastructure and Levenshtein lookalikes..."}
+                    {scanStep === 2 && "Phase 2/4: Cross-referencing against 48+ fraud signatures & ATS platforms..."}
+                    {scanStep === 3 && "Phase 3/4: Evaluating social engineering vectors and credential risks..."}
+                    {scanStep === 4 && "Phase 4/4: Computing multidimensional threat index & safety actions..."}
                   </p>
                 </div>
 
-                <div className="space-y-6">
-                  <Card className="rounded-2xl border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-md">
-                    <CardHeader>
-                      <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">
-                        The 4 Golden Rules of Safe Job Hunting
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex gap-4">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-sm dark:bg-blue-950 dark:text-blue-300">
-                          1
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                            Never Pay For A Job Under Any Circumstance
-                          </h4>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            No legitimate employer (including Amazon, Google, TCS, Infosys, or startups) charges for onboarding, training kits, security deposits, or laptop shipping.
-                          </p>
-                        </div>
-                      </div>
+                <div className="max-w-md mx-auto bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-300"
+                    style={{ width: `${(scanStep / 4) * 100}%` }}
+                  />
+                </div>
+              </Card>
+            ) : (
+              /* SCANNER FORM */
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* Job Title (Optional) */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="job-title-input" className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-400">
+                      Target Role / Job Title
+                    </Label>
+                    <div className="relative">
+                      <Briefcase className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                      <Input
+                        id="job-title-input"
+                        placeholder="e.g. Remote Cloud Support Associate"
+                        className="pl-9 bg-white dark:bg-slate-900"
+                        value={formData.jobTitle}
+                        onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })}
+                      />
+                    </div>
+                  </div>
 
-                      <div className="flex gap-4">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-sm dark:bg-blue-950 dark:text-blue-300">
-                          2
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                            Verify Recruiter Email Domain
-                          </h4>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            Corporate recruiters write from @company.com. If an alleged Microsoft recruiter emails from @gmail.com or @outlook.com, it is 99% fraudulent.
-                          </p>
-                        </div>
-                      </div>
+                  {/* Company Name */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="company-name-input" className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-400">
+                        Declared Company Name <span className="text-red-500">*</span>
+                      </Label>
+                      {formData.companyName && (
+                        <span className="text-[10px] font-mono text-slate-400">
+                          Normalized: {normalizeCompanyName(formData.companyName) || "N/A"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Building2 className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                      <Input
+                        id="company-name-input"
+                        placeholder="e.g. Amazon / Apex Global Corp"
+                        className="pl-9 bg-white dark:bg-slate-900"
+                        value={formData.companyName}
+                        onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
 
-                      <div className="flex gap-4">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-sm dark:bg-blue-950 dark:text-blue-300">
-                          3
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                            Check the Official /careers Page
-                          </h4>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            Go directly to the company website in a new browser tab. Search the Job ID or title. If it does not exist on their portal, question the recruiter.
-                          </p>
-                        </div>
-                      </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* Recruiter Email */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="recruiter-email-input" className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-400">
+                        Recruiter Email Address
+                      </Label>
+                      {liveEmailDomain && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                            liveEmailIsPublic
+                              ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400"
+                              : "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
+                          }`}
+                        >
+                          {liveEmailIsPublic ? "Public Webmail" : `@${liveEmailDomain}`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                      <Input
+                        id="recruiter-email-input"
+                        placeholder="e.g. talent-team@amazon.com or hr-amazon@gmail.com"
+                        className="pl-9 bg-white dark:bg-slate-900"
+                        value={formData.recruiterEmail}
+                        onChange={(e) => setFormData({ ...formData, recruiterEmail: e.target.value })}
+                      />
+                    </div>
+                  </div>
 
-                      <div className="flex gap-4">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-sm dark:bg-blue-950 dark:text-blue-300">
-                          4
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                            Hold Financial Credentials Until Day 1
-                          </h4>
-                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                            Never provide bank accounts, cancelled cheques, or SSN/Aadhaar numbers before an official formal offer letter is reviewed and signed.
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  {/* Application URL */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="application-url-input" className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-400">
+                        Application / Careers Link
+                      </Label>
+                      {liveAtsCheck.isAts && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                          ✓ Verified ATS: {liveAtsCheck.providerName}
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Link2 className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                      <Input
+                        id="application-url-input"
+                        placeholder="e.g. https://amazon.jobs/... or http://bit.ly/..."
+                        className="pl-9 bg-white dark:bg-slate-900"
+                        value={formData.applicationUrl}
+                        onChange={(e) => setFormData({ ...formData, applicationUrl: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Job Description / Message Content */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="job-description-input" className="text-xs font-semibold uppercase text-slate-600 dark:text-slate-400">
+                      Offer Letter / Email Text / Job Posting Details <span className="text-red-500">*</span>
+                    </Label>
+                    <span className="text-[11px] text-slate-400">
+                      {formData.jobDescription.length} characters
+                    </span>
+                  </div>
+                  <Textarea
+                    id="job-description-input"
+                    rows={7}
+                    placeholder="Paste the full job posting, email invitation, WhatsApp/Telegram chat log, or offer letter snippet here..."
+                    className="bg-white dark:bg-slate-900 font-sans text-sm leading-relaxed"
+                    value={formData.jobDescription}
+                    onChange={(e) => setFormData({ ...formData, jobDescription: e.target.value })}
+                  />
+                </div>
+
+                {/* ADVANCED FORENSICS COLLAPSIBLE */}
+                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-4 bg-slate-50 dark:bg-slate-900/60 space-y-3">
+                  <button
+                    id="toggle-advanced-headers-btn"
+                    type="button"
+                    onClick={() => setShowAdvancedHeaders(!showAdvancedHeaders)}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-indigo-500" />
+                      <span>Advanced Forensics: Raw RFC 822 Email Headers (.EML / Mail Source)</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        SPF / DKIM / DMARC
+                      </Badge>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showAdvancedHeaders ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {showAdvancedHeaders && (
+                    <div className="space-y-2 pt-2 animate-in fade-in">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Paste the raw message headers from your email client (e.g. Gmail &quot;Show Original&quot; or Outlook &quot;View Source&quot;) to test for From/Reply-To discrepancies and cryptographic mail authentication verdicts.
+                      </p>
+                      <Textarea
+                        id="email-headers-input"
+                        rows={4}
+                        placeholder="From: recruiter@amazon.com&#10;Reply-To: badactor@gmail.com&#10;Authentication-Results: spf=fail dkim=fail dmarc=fail..."
+                        className="font-mono text-xs bg-white dark:bg-slate-950"
+                        value={formData.emailHeaders}
+                        onChange={(e) => setFormData({ ...formData, emailHeaders: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* ACTION BUTTONS */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    <span>Client-side local analysis. Zero PII transmitted or stored externally.</span>
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <Button
+                      id="scanner-reset-btn"
+                      variant="outline"
+                      onClick={() => setFormData(INITIAL_FORM)}
+                      className="border-slate-300 dark:border-slate-700 text-xs h-11"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                      Clear Form
+                    </Button>
+
+                    <Button
+                      id="scanner-execute-btn"
+                      onClick={handleStartScan}
+                      disabled={!formData.jobDescription.trim() && !formData.companyName.trim()}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 h-11 shadow-md flex items-center gap-2 flex-1 sm:flex-initial"
+                    >
+                      <Search className="w-4 h-4" />
+                      <span>Analyze Threat Profile</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 3: EXPLAINABLE THREAT RESULTS DASHBOARD */}
+        {/* ========================================================================= */}
+        {currentScreen === "results" && currentReport && (
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* TOP BAR ACTIONS */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <button
+                    id="back-to-scanner-btn"
+                    onClick={() => setCurrentScreen("analyze")}
+                    className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                  >
+                    ← Back to Scanner
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-xs font-mono text-slate-400">
+                    Report ID: {currentReport.id}
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
+                  Threat Forensic Assessment
+                </h1>
+              </div>
+
+              {/* ACTION TOOLBAR */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  id="copy-threat-summary-btn"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyReport}
+                  className="border-slate-300 dark:border-slate-700 text-xs"
+                >
+                  {copiedReport ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                      Copied to Clipboard!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      Copy Threat Report
+                    </>
+                  )}
+                </Button>
+
+                <Button
+                  id="export-txt-btn"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadReport("txt")}
+                  className="border-slate-300 dark:border-slate-700 text-xs"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  Export .TXT
+                </Button>
+
+                <Button
+                  id="export-json-btn"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadReport("json")}
+                  className="border-slate-300 dark:border-slate-700 text-xs"
+                >
+                  <Code2 className="w-3.5 h-3.5 mr-1" />
+                  Export JSON
+                </Button>
+              </div>
+            </div>
+
+            {/* HERO SCORE & SUMMARY PANEL */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Radial Gauge Card */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="relative w-44 h-44 flex items-center justify-center">
+                  {/* SVG Circle Gauge */}
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      className="text-slate-100 dark:text-slate-800 stroke-current"
+                      strokeWidth="10"
+                      fill="transparent"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      className={`stroke-current transition-all duration-1000 ${getScoreColor(currentReport.overallScore)}`}
+                      strokeWidth="10"
+                      strokeDasharray={2 * Math.PI * 40}
+                      strokeDashoffset={2 * Math.PI * 40 * (1 - currentReport.overallScore / 100)}
+                      strokeLinecap="round"
+                      fill="transparent"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-4xl font-extrabold tracking-tight">
+                      {currentReport.overallScore}
+                    </span>
+                    <span className="text-[11px] uppercase tracking-wider text-slate-400 font-mono">
+                      Threat Index
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Badge className={`text-xs px-3 py-1 font-bold ${getSeverityBadgeClass(currentReport.overallSeverity)}`}>
+                    {currentReport.overallSeverity} THREAT LEVEL
+                  </Badge>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    0–29: LOW • 30–59: MEDIUM • 60–79: HIGH • 80–100: CRITICAL
+                  </p>
+                </div>
+              </Card>
+
+              {/* Stated Details & Summary Card */}
+              <Card className="lg:col-span-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <Terminal className="w-5 h-5 text-indigo-500" />
+                      Threat Executive Summary
+                    </h2>
+                    <span className="text-xs font-mono text-slate-400">
+                      {new Date(currentReport.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+
+                  <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                    {currentReport.summary}
+                  </p>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs pt-1">
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-400 block text-[10px] uppercase font-mono">Employer</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                        {currentReport.companyName || "Unspecified"}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-400 block text-[10px] uppercase font-mono">Target Role</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                        {currentReport.jobTitle || "Unspecified"}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-400 block text-[10px] uppercase font-mono">Signals Intercepted</span>
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 block">
+                        {currentReport.signals.length} threat markers
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Educational Takeaway Callout */}
+                <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-start gap-3">
+                  <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+                  <div className="text-xs">
+                    <span className="font-bold text-indigo-900 dark:text-indigo-200 block">
+                      Learn From This Scan: {currentReport.educationalTakeaway.title}
+                    </span>
+                    <span className="text-indigo-700 dark:text-indigo-300">
+                      {currentReport.educationalTakeaway.explanation}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* 5-AXIS RISK MATRIX */}
+            <div className="space-y-3">
+              <h2 className="text-base font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                <PieChart className="w-4 h-4" />
+                Multidimensional Cybersecurity Risk Matrix
+              </h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {/* 1. Financial Fraud */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Advance-Fee Fraud</span>
+                    <span className="text-xs font-mono font-bold">{currentReport.categoryScores.financialFraud}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        currentReport.categoryScores.financialFraud >= 60
+                          ? "bg-red-500"
+                          : currentReport.categoryScores.financialFraud >= 30
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${currentReport.categoryScores.financialFraud}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">Equipment fees, deposit traps, paid training</p>
+                </div>
+
+                {/* 2. Credential Risk */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Credential / RAT Risk</span>
+                    <span className="text-xs font-mono font-bold">{currentReport.categoryScores.credentialRisk}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        currentReport.categoryScores.credentialRisk >= 60
+                          ? "bg-red-500"
+                          : currentReport.categoryScores.credentialRisk >= 30
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${currentReport.categoryScores.credentialRisk}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">OTP requests, AnyDesk/TeamViewer, PII</p>
+                </div>
+
+                {/* 3. Phishing / Domain */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Phishing & Spoofing</span>
+                    <span className="text-xs font-mono font-bold">{currentReport.categoryScores.phishingImpersonation}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        currentReport.categoryScores.phishingImpersonation >= 60
+                          ? "bg-red-500"
+                          : currentReport.categoryScores.phishingImpersonation >= 30
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${currentReport.categoryScores.phishingImpersonation}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">Typosquatting, shorteners, public webmail</p>
+                </div>
+
+                {/* 4. Social Engineering */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Social Engineering</span>
+                    <span className="text-xs font-mono font-bold">{currentReport.categoryScores.socialEngineering}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        currentReport.categoryScores.socialEngineering >= 60
+                          ? "bg-red-500"
+                          : currentReport.categoryScores.socialEngineering >= 30
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${currentReport.categoryScores.socialEngineering}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">Telegram migration, 24h pressure, secrecy</p>
+                </div>
+
+                {/* 5. Job Credibility */}
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Job Credibility</span>
+                    <span className="text-xs font-mono font-bold">{currentReport.categoryScores.jobCredibility}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${
+                        currentReport.categoryScores.jobCredibility >= 60
+                          ? "bg-red-500"
+                          : currentReport.categoryScores.jobCredibility >= 30
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                      style={{ width: `${currentReport.categoryScores.jobCredibility}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">Salary realism, scope structure, task traps</p>
+                </div>
+              </div>
+            </div>
+
+            {/* FORENSIC TECHNICAL BREAKDOWN: EMAIL TRUST, URL SECURITY, HEADERS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Card 1: Recruiter Trust */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-indigo-500" />
+                    <h3 className="font-bold text-sm">Recruiter Trust Layer</h3>
+                  </div>
+                  <Badge className={`text-[10px] ${getSeverityBadgeClass(currentReport.emailAnalysis.risk)}`}>
+                    {currentReport.emailAnalysis.risk}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">Domain:</span>
+                    <span className="font-mono font-semibold">{currentReport.emailAnalysis.domain || "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">Domain Type:</span>
+                    <span className="font-semibold">{currentReport.emailAnalysis.domainType}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">Company Match:</span>
+                    <span className="font-semibold">{currentReport.emailAnalysis.companyMatch}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                    {currentReport.emailAnalysis.details[0] || "No domain anomalies detected."}
+                  </p>
+                </div>
+              </Card>
+
+              {/* Card 2: URL Security */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    <h3 className="font-bold text-sm">URL & Hosting Security</h3>
+                  </div>
+                  <Badge className={`text-[10px] ${getSeverityBadgeClass(currentReport.urlAnalysis.risk)}`}>
+                    {currentReport.urlAnalysis.risk}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">Host Domain:</span>
+                    <span className="font-mono font-semibold truncate max-w-[140px]">
+                      {currentReport.urlAnalysis.domain || "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">Protocol:</span>
+                    <span className={`font-mono font-semibold ${currentReport.urlAnalysis.protocol === "HTTP" ? "text-red-500" : ""}`}>
+                      {currentReport.urlAnalysis.protocol}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-slate-400">ATS / Portal Status:</span>
+                    <span className="font-semibold truncate max-w-[140px]">
+                      {currentReport.urlAnalysis.isRecognizedAts
+                        ? `✓ ${currentReport.urlAnalysis.atsProviderName}`
+                        : currentReport.urlAnalysis.brandMatch}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                    {currentReport.urlAnalysis.explanation}
+                  </p>
+                </div>
+              </Card>
+
+              {/* Card 3: Header Forensics / Trust Signals */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-purple-500" />
+                    <h3 className="font-bold text-sm">Forensics & Company Trust</h3>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    {currentReport.companyTrust.trustLevel} TRUST
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  {currentReport.headerAnalysis ? (
+                    <>
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-400">SPF / DKIM / DMARC:</span>
+                        <span className="font-mono font-semibold">
+                          {currentReport.headerAnalysis.spf} / {currentReport.headerAnalysis.dkim} / {currentReport.headerAnalysis.dmarc}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-400">From/Reply-To Match:</span>
+                        <span className={`font-semibold ${currentReport.headerAnalysis.fromReplyToMismatch ? "text-red-500" : "text-emerald-500"}`}>
+                          {currentReport.headerAnalysis.fromReplyToMismatch ? "MISMATCH (Spoofing)" : "ALIGNED"}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-1 border-b border-slate-100 dark:border-slate-800 text-slate-400">
+                      RFC 822 Email Headers not provided.
+                    </div>
+                  )}
+
+                  <div className="pt-1">
+                    <span className="text-slate-400 block text-[10px] uppercase font-mono">Trust Diagnostics</span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {currentReport.companyTrust.trustNotes[0] || "Based on submitted information."}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* DETECTED CYBERSECURITY THREAT SIGNALS (EXPLAINABLE FINDINGS) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                    Detected Threat Signals & Explainable Evidence ({currentReport.signals.length})
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Each signal extracts the concrete adversary tactic, why it is dangerous, the exact evidence from your input, and mitigation steps.
+                  </p>
+                </div>
+              </div>
+
+              {currentReport.signals.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                  <h3 className="font-bold text-base text-emerald-900 dark:text-emerald-200">
+                    No Overt Cyber Threats Detected
+                  </h3>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300 max-w-md mx-auto">
+                    The submitted opportunity passed all 48+ fraud and impersonation heuristics. Always exercise zero-trust vigilance before sharing private credentials.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {currentReport.signals.map((signal, idx) => (
+                    <Card
+                      key={signal.id || idx}
+                      className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge className={`text-xs font-bold ${getSeverityBadgeClass(signal.severity)}`}>
+                            {signal.severity}
+                          </Badge>
+                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                            {signal.technique}
+                          </span>
+                          <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                            {signal.title}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Evidence Box */}
+                      <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 font-mono text-xs text-red-600 dark:text-red-400 flex items-start gap-2">
+                        <span className="text-slate-400 font-sans font-semibold shrink-0 uppercase text-[10px]">
+                          Evidence:
+                        </span>
+                        <span className="italic break-all">&quot;{signal.evidence}&quot;</span>
+                      </div>
+
+                      {/* Why & Recommended Action */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
+                        <div className="space-y-1">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                            <Info className="w-3.5 h-3.5 text-indigo-500" />
+                            Why Attackers Use This:
+                          </span>
+                          <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {signal.why}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Recommended Safe Action:
+                          </span>
+                          <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {signal.action}
+                          </p>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* POSITIVE CREDIBILITY MARKERS & NEXT ACTIONS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Positive Indicators */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  Positive Credibility Signals ({currentReport.positives.length})
+                </h3>
+                <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                  {currentReport.positives.map((pos, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-emerald-500 font-bold shrink-0">✓</span>
+                      <span>{pos}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+
+              {/* Actionable Safety Protocol */}
+              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-indigo-500" />
+                  Actionable Next Steps
+                </h3>
+                <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                  {currentReport.actions.map((act, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 flex items-center justify-center font-mono text-[10px] shrink-0 font-bold">
+                        {idx + 1}
+                      </span>
+                      <span>{act}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 4: USER SECURITY HUB & SCAN HISTORY */}
+        {/* ========================================================================= */}
+        {currentScreen === "dashboard" && (
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                  Security Hub & Threat Telemetry
+                </h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Historical telemetry and incident records compiled across all your local job security scans.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  id="hub-new-scan-btn"
+                  size="sm"
+                  onClick={() => setCurrentScreen("analyze")}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
+                >
+                  <Search className="w-3.5 h-3.5 mr-1" />
+                  Scan New Job
+                </Button>
+
+                {historyList.length > 0 && (
+                  <Button
+                    id="hub-clear-history-btn"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearHistory}
+                    className="border-slate-300 dark:border-slate-700 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" />
+                    Clear History
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* METRICS ROW */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+                <span className="text-xs uppercase font-mono text-slate-400">Total Analyses</span>
+                <p className="text-3xl font-extrabold text-slate-900 dark:text-white">
+                  {historyStats.totalScans}
+                </p>
+                <span className="text-[11px] text-slate-500">Evaluated locally</span>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+                <span className="text-xs uppercase font-mono text-red-500">High / Critical Threats</span>
+                <p className="text-3xl font-extrabold text-red-600 dark:text-red-400">
+                  {historyStats.highOrCriticalCount}
+                </p>
+                <span className="text-[11px] text-slate-500">
+                  {historyStats.criticalThreats} Critical • {historyStats.highThreats} High
+                </span>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+                <span className="text-xs uppercase font-mono text-emerald-500">Low Risk Jobs</span>
+                <p className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">
+                  {historyStats.lowThreats}
+                </p>
+                <span className="text-[11px] text-slate-500">Passed core checks</span>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+                <span className="text-xs uppercase font-mono text-indigo-500">Threat Signals Logged</span>
+                <p className="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                  {historyStats.totalSignalsDetected}
+                </p>
+                <span className="text-[11px] text-slate-500">Adversary indicators</span>
+              </div>
+            </div>
+
+            {/* RECENT SCANS TABLE */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <History className="w-5 h-5 text-indigo-500" />
+                Recent Scan Reports ({historyList.length})
+              </h2>
+
+              {historyList.length === 0 ? (
+                <div className="p-12 text-center border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl space-y-3">
+                  <Search className="w-8 h-8 text-slate-400 mx-auto" />
+                  <p className="text-sm font-medium text-slate-500">No scanned opportunities yet.</p>
+                  <Button
+                    size="sm"
+                    onClick={() => setCurrentScreen("analyze")}
+                    className="bg-indigo-600 text-white"
+                  >
+                    Run Your First Scan
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase font-mono">
+                      <tr>
+                        <th className="p-4">Target Opportunity</th>
+                        <th className="p-4">Recruiter / Domain</th>
+                        <th className="p-4">Threat Index</th>
+                        <th className="p-4">Severity</th>
+                        <th className="p-4">Date</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {historyList.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="p-4 font-semibold text-slate-900 dark:text-slate-100">
+                            <div>{item.jobTitle || "Unspecified Role"}</div>
+                            <div className="text-[11px] font-normal text-slate-400">{item.companyName}</div>
+                          </td>
+                          <td className="p-4 font-mono text-slate-600 dark:text-slate-300">
+                            {item.emailAnalysis.domain || "N/A"}
+                          </td>
+                          <td className="p-4 font-mono font-bold text-sm">
+                            <span className={getScoreColor(item.overallScore)}>{item.overallScore}/100</span>
+                          </td>
+                          <td className="p-4">
+                            <Badge className={`text-[10px] font-bold ${getSeverityBadgeClass(item.overallSeverity)}`}>
+                              {item.overallSeverity}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-slate-400">
+                            {new Date(item.timestamp).toLocaleDateString()}
+                          </td>
+                          <td className="p-4 text-right space-x-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setCurrentReport(item);
+                                setCurrentScreen("results");
+                              }}
+                              className="text-xs h-7 px-2.5"
+                            >
+                              <Eye className="w-3 h-3 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeleteHistory(item.id)}
+                              className="text-xs h-7 px-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 5: SCAM RADAR KNOWLEDGE BASE */}
+        {/* ========================================================================= */}
+        {currentScreen === "radar" && (
+          <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                  Recruitment Scam Radar Knowledge Base
+                </h1>
+                <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">
+                  2026 Threat Intel
+                </Badge>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Deep analysis of contemporary recruitment attack vectors, adversary playbooks, and mitigation protocols.
+              </p>
+            </div>
+
+            {/* FILTER PILLS */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-slate-400 font-medium mr-1">Filter Technique:</span>
+              {["ALL", "ADVANCE_FEE_FRAUD", "CREDENTIAL_HARVESTING", "IMPERSONATION", "FINANCIAL_FRAUD"].map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setRadarFilter(filter)}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    radarFilter === filter
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {filter.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+
+            {/* KNOWLEDGE BASE CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {SCAM_KNOWLEDGE_BASE.filter(
+                (item) => radarFilter === "ALL" || item.technique === radarFilter
+              ).map((scam) => (
+                <Card
+                  key={scam.id}
+                  className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4 flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Badge className={`text-[10px] font-bold ${getSeverityBadgeClass(scam.severity)}`}>
+                        {scam.severity}
+                      </Badge>
+                      <span className="font-mono text-[11px] text-slate-400">
+                        {scam.technique}
+                      </span>
+                    </div>
+
+                    <h3 className="font-bold text-base text-slate-900 dark:text-white">
+                      {scam.title}
+                    </h3>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      {scam.summary}
+                    </p>
+
+                    {/* How it works */}
+                    <div className="space-y-1.5 pt-2">
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                        How Attackers Execute It:
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                        {scam.howItWorks.map((step, idx) => (
+                          <li key={idx} className="flex items-start gap-1.5">
+                            <span className="text-indigo-500 font-bold">•</span>
+                            <span>{step}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Real world quote */}
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs italic font-mono text-slate-600 dark:text-slate-300">
+                      {scam.realWorldExample}
+                    </div>
+                  </div>
+
+                  {/* Defense Protocol */}
+                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs space-y-1">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Defense Protocol:
+                    </span>
+                    <p className="text-emerald-700 dark:text-emerald-400">
+                      {scam.defenseProtocol[0]}
+                    </p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 6: SECURITY ANALYST & RULE ENGINE INSPECTOR */}
+        {/* ========================================================================= */}
+        {currentScreen === "analyst" && (
+          <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                  Security Analyst & Detection Engine Telemetry
+                </h1>
+                <Badge variant="outline" className="text-xs font-mono">
+                  Viva / Examiner Mode
+                </Badge>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Inspect active heuristic rule weights, MITRE-style attack technique classifications, and OSINT feed configurations.
+              </p>
+            </div>
+
+            {/* ARCHITECTURE DIAGRAM / SPECS */}
+            <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-900 text-white space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-5 h-5 text-indigo-400" />
+                  <span className="font-mono text-sm font-bold text-indigo-300">
+                    Engine Pipeline: Normalization → Signal Extraction → Weighted Risk Score
+                  </span>
+                </div>
+                <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/40 text-xs">
+                  Zero False-Claim Mode
+                </Badge>
+              </div>
+
+              <p className="text-xs text-slate-300 font-mono leading-relaxed">
+                Threat Index = min(100, &sum; (w_i &times; Match_i) + &Delta;_Domain + &Delta;_Headers)
+                <br />
+                Critical indicators (advance fee demands, OTP solicitations, RAT installations) automatically elevate the threat floor to &ge; 82 (CRITICAL).
+              </p>
+            </div>
+
+            {/* MODULAR THREAT INTEL / OSINT FEEDS */}
+            <div className="space-y-3">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Server className="w-5 h-5 text-blue-500" />
+                Threat Intelligence & OSINT Integration Layer
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {threatIntel.activeFeeds.map((feed) => (
+                  <Card key={feed.name} className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white">{feed.name}</span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${
+                          feed.apiConfigured
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {feed.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      {feed.description}
+                    </p>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* VIVA QUESTIONS & DEFENSE QUESTIONS */}
+            <div className="p-6 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-4">
+              <h2 className="font-bold text-base text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Cybersecurity Examiner / Viva Defense Points
+              </h2>
+
+              <div className="space-y-3 text-xs text-slate-700 dark:text-slate-300">
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Q1: How do you prevent false positives on early-stage startups using Gmail?
+                  </span>
+                  <p className="text-slate-500 dark:text-slate-400">
+                    We treat public email domains as a <em>weaker trust marker</em> (+20 pts) rather than an automatic critical scam (+80 pts), only flagging critical risk when combined with advance fees, OTP theft, or remote tool downloads.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Q2: How does the engine detect lookalike / typosquatting domains?
+                  </span>
+                  <p className="text-slate-500 dark:text-slate-400">
+                    We implement Levenshtein distance calculations and leetspeak substitution matrix (e.g. 0→o, 1→l, rn→m) to flag homoglyph domains mimicking enterprise brands (e.g. <code>amaz0n.jobs</code>).
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1">
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Q3: How is candidate privacy protected?
+                  </span>
+                  <p className="text-slate-500 dark:text-slate-400">
+                    The entire evaluation runs 100% in-browser via deterministic client-side rule extraction. No resumes, passwords, or candidate PII are sent to third-party tracking servers.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SCREEN 7: CANDIDATE SAFETY PROTOCOL & CHECKLIST */}
+        {/* ========================================================================= */}
+        {currentScreen === "safety" && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="border-b border-slate-200 dark:border-slate-800 pb-5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
+                  Candidate Due Diligence Safety Protocol
+                </h1>
+                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
+                  Zero-Trust Hiring Checklist
+                </Badge>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Standard operating procedure to verify employer legitimacy before signing contracts or submitting identity documents.
+              </p>
+            </div>
+
+            {/* CHECKLIST ITEMS */}
+            <div className="space-y-3">
+              {[
+                {
+                  id: "check-1",
+                  title: "1. Independent Domain & Career Page Cross-Reference",
+                  desc: "Manually navigate to the company's official corporate website (e.g. amazon.jobs or microsoft.com/careers) and verify the Job ID exists in their active catalog."
+                },
+                {
+                  id: "check-2",
+                  title: "2. Recruiter Corporate Email Verification",
+                  desc: "Ensure the recruiter contacts you from an authenticated corporate email domain (@company.com). If approached on WhatsApp/Telegram, demand an email confirmation from corporate mail."
+                },
+                {
+                  id: "check-3",
+                  title: "3. Absolute Zero-Payment Mandate",
+                  desc: "Never transfer any money for equipment deposits, background verification, software licenses, or interview registration. Real employers absorb all onboarding costs."
+                },
+                {
+                  id: "check-4",
+                  title: "4. No Remote Access Tools (AnyDesk / TeamViewer)",
+                  desc: "Never install remote control utilities or allow an unknown interviewer to access your desktop. Authentic technical assessments use browser-based code runners."
+                },
+                {
+                  id: "check-5",
+                  title: "5. Require Live Video or Multi-Stage Technical Loops",
+                  desc: "Refuse chat-only interviews conducted on Telegram or WhatsApp. Legitimate corporate positions require live multi-round interviews with cameras enabled."
+                },
+                {
+                  id: "check-6",
+                  title: "6. Protect Tax IDs & Banking Information",
+                  desc: "Only provide banking details (for payroll direct deposit) and government IDs AFTER a formal written offer letter has been verified and countersigned."
+                }
+              ].map((item) => {
+                const isChecked = Boolean(checkedSafetyItems[item.id]);
+                return (
+                  <Card
+                    key={item.id}
+                    onClick={() =>
+                      setCheckedSafetyItems({
+                        ...checkedSafetyItems,
+                        [item.id]: !isChecked
+                      })
+                    }
+                    className={`cursor-pointer border p-4 sm:p-5 transition-all flex items-start gap-4 ${
+                      isChecked
+                        ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                    }`}
+                  >
+                    <div
+                      className={`w-6 h-6 rounded-lg border flex items-center justify-center mt-0.5 shrink-0 transition-colors ${
+                        isChecked
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      }`}
+                    >
+                      {isChecked && <Check className="w-4 h-4" />}
+                    </div>
+
+                    <div className="space-y-1">
+                      <h3 className={`font-bold text-sm ${isChecked ? "text-emerald-900 dark:text-emerald-200" : "text-slate-900 dark:text-white"}`}>
+                        {item.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                        {item.desc}
+                      </p>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* REPORTING TO AUTHORITIES CALLOUT */}
+            <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+              <h2 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <AlertOctagon className="w-5 h-5 text-red-500" />
+                Where to Report Recruitment Scams
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-300">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                  <span className="font-bold text-slate-900 dark:text-white block mb-1">
+                    India (National Cyber Crime Portal)
+                  </span>
+                  <p className="text-slate-500 mb-2">Report online financial fraud, UPI extortion, or fake job networks.</p>
+                  <a
+                    href="https://cybercrime.gov.in"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline inline-flex items-center gap-1"
+                  >
+                    cybercrime.gov.in <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                  <span className="font-bold text-slate-900 dark:text-white block mb-1">
+                    USA / Global (FBI IC3 & FTC)
+                  </span>
+                  <p className="text-slate-500 mb-2">Internet Crime Complaint Center for advance fee check scams and impersonation.</p>
+                  <a
+                    href="https://www.ic3.gov"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline inline-flex items-center gap-1"
+                  >
+                    ic3.gov <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-slate-200/80 bg-white/80 py-8 dark:border-slate-800/80 dark:bg-slate-950/80 z-10">
-        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              JobLens &copy; 2026. Recruitment Fraud Prevention.
-            </span>
-          </div>
-
-          <div className="flex items-center gap-6 text-xs text-slate-500 dark:text-slate-400">
-            <button onClick={() => setScreen("radar")} className="hover:underline">
-              Scam Radar
-            </button>
-            <button onClick={() => setScreen("safety")} className="hover:underline">
-              Safety Rules
-            </button>
-            <button onClick={() => setScreen("analyze")} className="hover:underline">
-              Scanner
-            </button>
-          </div>
+      {/* FOOTER */}
+      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-950/50 py-8 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
+        <div className="flex items-center justify-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-indigo-500" />
+          <span className="font-bold text-slate-700 dark:text-slate-300">JOBLENS CYBERSECURITY SUITE</span>
+          <span>•</span>
+          <span>Omni_CyberTech_10 Track</span>
         </div>
+        <p>
+          Designed for explainable recruitment threat detection, domain authenticity analysis, and candidate safety.
+        </p>
       </footer>
     </div>
   );
