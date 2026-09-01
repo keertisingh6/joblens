@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with preferences and metadata",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of candidate"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar URL"
+        },
+        "role": {
+          "type": "string",
+          "description": "Job candidate role"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "Last login timestamp"
+        },
+        "scanCount": {
+          "type": "number",
+          "description": "Total forensic job scans executed"
+        }
+      },
+      "required": ["uid"]
+    },
+    "ScanRecord": {
+      "title": "ScanRecord",
+      "description": "A saved forensic scam analysis report",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner candidate UID"
+        },
+        "jobTitle": {
+          "type": "string",
+          "description": "Evaluated job role"
+        },
+        "company": {
+          "type": "string",
+          "description": "Company name"
+        },
+        "overallScore": {
+          "type": "number",
+          "description": "Scam risk score 0-100"
+        },
+        "threatLevel": {
+          "type": "string",
+          "description": "CRITICAL, HIGH, MEDIUM, LOW, SAFE"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp created"
+        }
+      },
+      "required": ["userId", "overallScore"]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "AI Forensic Chat message turn",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner candidate UID"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "model"],
+          "description": "Message author role"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text payload"
+        },
+        "persona": {
+          "type": "string",
+          "description": "Investigative persona"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Message timestamp"
+        }
+      },
+      "required": ["userId", "role", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "UserProfile"
+      },
+      "description": "Stores individual candidate profiles and protection settings"
+    },
+    "/scans/{scanId}": {
+      "schema": {
+        "$ref": "ScanRecord"
+      },
+      "description": "Stores user threat evaluation scans"
+    },
+    "/chatThreads/{threadId}": {
+      "schema": {
+        "$ref": "ChatThread"
+      },
+      "description": "Stores candidate AI conversation history with Gemini"
+    }
+  }
+}

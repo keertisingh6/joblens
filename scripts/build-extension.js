@@ -693,11 +693,11 @@ const sidepanelHtml = `<!DOCTYPE html>
         <form id="onboarding-form" class="form-stack">
           <div class="field">
             <label for="onboard-name">Your Name</label>
-            <input type="text" id="onboard-name" placeholder="e.g. Keerti Singh" required>
+            <input type="text" id="onboard-name" placeholder="e.g. Alex Morgan" required>
           </div>
           <div class="field">
             <label for="onboard-email">Email (for alert sync)</label>
-            <input type="email" id="onboard-email" placeholder="e.g. keerti@example.com" required>
+            <input type="email" id="onboard-email" placeholder="e.g. alex@example.com" required>
           </div>
           <div class="field">
             <label for="onboard-sensitivity">Threat Sensitivity</label>
