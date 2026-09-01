@@ -61,12 +61,13 @@ export async function generateExtensionZip(): Promise<Blob> {
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
 
   try {
-    const [sidepanelHtml, sidepanelCss, sidepanelJs, contentJs, serviceWorkerJs, readme] = await Promise.all([
+    const [sidepanelHtml, sidepanelCss, sidepanelJs, contentJs, serviceWorkerJs, securityEngineJs, readme] = await Promise.all([
       fetch("/extension/sidepanel/sidepanel.html").then(r => r.text()),
       fetch("/extension/sidepanel/sidepanel.css").then(r => r.text()),
       fetch("/extension/sidepanel/sidepanel.js").then(r => r.text()),
       fetch("/extension/content/content.js").then(r => r.text()),
       fetch("/extension/background/service-worker.js").then(r => r.text()),
+      fetch("/extension/detectors/security-engine.js").then(r => r.text()),
       fetch("/extension/README.md").then(r => r.text())
     ]);
 
@@ -75,6 +76,7 @@ export async function generateExtensionZip(): Promise<Blob> {
     zip.file("sidepanel/sidepanel.js", sidepanelJs);
     zip.file("content/content.js", contentJs);
     zip.file("background/service-worker.js", serviceWorkerJs);
+    zip.file("detectors/security-engine.js", securityEngineJs);
     zip.file("README.md", readme);
 
     // Also include root aliases for legacy loaders

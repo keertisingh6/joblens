@@ -128,15 +128,29 @@
 
         <!-- SCAN RESULT CARD -->
         <div class="scan-result-card hidden" id="scan-result-card">
+          <!-- USER STATUS OVERRIDE BANNER -->
+          <div class="user-override-banner hidden" id="user-status-banner">
+            <span class="override-icon">🛡️</span>
+            <div class="override-info">
+              <strong>Candidate Override: Marked Safe</strong>
+              <p id="user-status-detail">Calculated score preserved for forensic audit trail.</p>
+            </div>
+          </div>
+
+          <!-- DEMO MODE BADGE -->
+          <div class="demo-banner hidden" id="demo-mode-banner">
+            🧪 DEMONSTRATION RECORD — Evaluated with authoritative security engine
+          </div>
+
           <!-- RISK HEADER -->
           <div class="risk-banner" id="risk-banner">
             <div class="risk-banner-header">
               <div class="risk-title-group">
                 <span class="risk-icon" id="risk-badge-icon">🚨</span>
-                <span class="risk-title-text" id="risk-badge-text">RECRUITMENT SCAM DETECTED</span>
+                <span class="risk-title-text" id="risk-badge-text">HIGH-RISK SIGNALS DETECTED</span>
               </div>
               <div class="score-pill">
-                <span class="score-num" id="threat-score-val">87</span>
+                <span class="score-num" id="threat-score-val">0</span>
                 <span class="score-denom">/100</span>
               </div>
             </div>
@@ -156,19 +170,25 @@
             <div class="category-pills" id="category-pills-row"></div>
             
             <div class="why-box">
-              <span class="section-tag">WHY THIS MATTERS</span>
-              <p id="why-text" class="why-text"></p>
+              <span class="section-tag">WHY THIS SCORE? (EXPLAINABLE EVIDENCE)</span>
+              <div id="why-signals-breakdown" class="why-signals-breakdown"></div>
+            </div>
+
+            <!-- COMPOUND MULTIPLIERS -->
+            <div class="compound-box hidden" id="compound-box">
+              <span class="section-tag">COMPOUND ATTACK PATTERNS</span>
+              <div id="compound-list" class="compound-list"></div>
+            </div>
+
+            <!-- POSITIVE TRUST ADJUSTMENTS -->
+            <div class="adjustments-box hidden" id="adjustments-box">
+              <span class="section-tag">TRUST ADJUSTMENTS</span>
+              <div id="adjustments-list" class="adjustments-list"></div>
             </div>
 
             <div class="action-box">
-              <span class="section-tag">DEFENSIVE ACTION</span>
+              <span class="section-tag">RECOMMENDED DEFENSIVE ACTION</span>
               <p id="action-text" class="action-text"></p>
-            </div>
-
-            <!-- EVIDENCE SNIPPETS -->
-            <div class="evidence-box">
-              <span class="section-tag">EVIDENCE DETECTED (<span id="evidence-count">0</span>)</span>
-              <div id="evidence-list" class="evidence-list"></div>
             </div>
           </div>
 
@@ -176,7 +196,7 @@
           <div class="scan-actions-grid">
             <button class="btn btn-xs btn-outline" id="btn-copy-report">📋 Copy Report</button>
             <button class="btn btn-xs btn-outline" id="btn-save-report">💾 Save</button>
-            <button class="btn btn-xs btn-outline btn-danger-ghost" id="btn-report-scam">🚨 Report</button>
+            <button class="btn btn-xs btn-outline btn-danger-ghost" id="btn-report-scam">🚨 Create Incident Report</button>
             <button class="btn btn-xs btn-ghost" id="btn-mark-safe">Mark Safe</button>
           </div>
         </div>
@@ -194,17 +214,17 @@
       <!-- TAB 3: SCAM RADAR -->
       <div id="tab-radar" class="tab-content">
         <div class="radar-header">
-          <h3>Recruitment Threat Radar</h3>
+          <h3>Recruitment Threat Vectors</h3>
           <p class="text-dim text-xs">8 Core Cyber Threat Vectors</p>
         </div>
         <div class="radar-list">
           <div class="radar-item">
-            <div class="radar-item-title">💼 Advance-Fee Laptop / Equipment Scam</div>
-            <p class="radar-item-desc">Adversaries demand refundable deposits for MacBook/monitors before courier dispatch.</p>
+            <div class="radar-item-title">💼 Advance-Fee Equipment / Laptop Scam</div>
+            <p class="radar-item-desc">Adversaries demand upfront courier or insurance deposits before sending hardware.</p>
           </div>
           <div class="radar-item">
-            <div class="radar-item-title">📱 YouTube / Review Task Scam</div>
-            <p class="radar-item-desc">Lures victims with small payouts for video likes, then demands thousands in prepaid recharge fees.</p>
+            <div class="radar-item-title">📱 YouTube / Task Commission Scam</div>
+            <p class="radar-item-desc">Lures candidates with small task payouts, then locks funds behind prepaid recharges.</p>
           </div>
           <div class="radar-item">
             <div class="radar-item-title">🆔 Aadhaar / PAN Credential Harvesting</div>
@@ -212,7 +232,26 @@
           </div>
           <div class="radar-item">
             <div class="radar-item-title">🖥️ AnyDesk / Remote Access RAT</div>
-            <p class="radar-item-desc">Pressures candidate to install remote desktop utilities under guise of 'system test'.</p>
+            <p class="radar-item-desc">Pressures candidate to install remote desktop software under guise of 'assessment'.</p>
+          </div>
+        </div>
+
+        <div class="demo-section pt-4">
+          <h4 class="text-xs text-dim uppercase tracking-wider mb-2">🧪 Controlled Test Scenarios (Demo Mode)</h4>
+          <p class="text-xs text-dim mb-3">Test the authoritative security engine against structured benchmark scenarios:</p>
+          <div class="demo-buttons-grid">
+            <button class="btn btn-xs btn-outline btn-block mb-1" id="btn-demo-advance-fee">
+              🔴 Scenario 1: Advance-Fee Laptop Deposit
+            </button>
+            <button class="btn btn-xs btn-outline btn-block mb-1" id="btn-demo-task-scam">
+              🔴 Scenario 2: YouTube Task Recharge
+            </button>
+            <button class="btn btn-xs btn-outline btn-block mb-1" id="btn-demo-whatsapp-urgency">
+              🟠 Scenario 3: WhatsApp + Immediate Urgency
+            </button>
+            <button class="btn btn-xs btn-outline btn-block mb-1" id="btn-demo-legit-job">
+              🟢 Scenario 4: Legitimate Corporate Posting
+            </button>
           </div>
         </div>
       </div>
@@ -234,14 +273,18 @@
       <!-- TAB 5: SETTINGS -->
       <div id="tab-settings" class="tab-content">
         <div class="settings-card">
-          <h3>User Security Profile</h3>
-          <p class="user-email-text" id="user-display-email">candidate@joblens.security</p>
-          <div class="field pt-2">
+          <h3>Candidate Security Session</h3>
+          <div class="user-info-group pt-2">
+            <div class="text-sm font-semibold" id="user-display-name">Not Signed In</div>
+            <p class="user-email-text" id="user-display-email">Not authenticated</p>
+            <span class="pill pill-success text-xs mt-1" id="user-session-badge">Local On-Device Protection</span>
+          </div>
+          <div class="field pt-3">
             <label>Threat Sensitivity</label>
             <select id="settings-sensitivity">
-              <option value="STANDARD">Standard (Balanced)</option>
-              <option value="AGGRESSIVE">Aggressive (Zero-Trust)</option>
-              <option value="RELAXED">Relaxed (Critical Only)</option>
+              <option value="STANDARD">Standard (Balanced Heuristics)</option>
+              <option value="AGGRESSIVE">Aggressive (Zero-Trust Strict)</option>
+              <option value="RELAXED">Relaxed (Flags Critical Only)</option>
             </select>
           </div>
           <div class="settings-actions pt-4">
@@ -252,6 +295,7 @@
     </section>
   </div>
 
+  <script src="../detectors/security-engine.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

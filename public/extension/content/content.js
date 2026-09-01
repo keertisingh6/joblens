@@ -35,11 +35,11 @@
           success: true,
           platform: "LinkedIn",
           sourceType: "JOB_POSTING",
-          jobTitle: titleEl?.textContent?.trim() || pageTitle.split("|")[0]?.trim() || "LinkedIn Job Posting",
-          companyName: companyEl?.textContent?.trim() || "LinkedIn Employer",
+          jobTitle: titleEl?.textContent?.trim() || pageTitle.split(/[-|•]/)[0]?.trim() || "LinkedIn Job Posting",
+          companyName: companyEl?.textContent?.trim() || "Not available",
           recruiterEmail: extractEmails(descEl?.textContent || "")[0] || "",
           applicationUrl: url,
-          jobDescription: descEl?.textContent?.trim() || document.body.innerText.slice(0, 4000),
+          jobDescription: descEl?.textContent?.trim() || (document.body ? document.body.innerText.slice(0, 4000) : ""),
           recruiterName: recruiterEl?.textContent?.trim() || ""
         };
       }

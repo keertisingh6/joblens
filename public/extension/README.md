@@ -6,11 +6,11 @@
    `chrome://extensions` (or `brave://extensions` / `edge://extensions`)
 2. Toggle **Developer mode** in the top right corner.
 3. Click **Load unpacked**.
-4. Select the `extension/` folder located in this repository.
+4. Select the `extension/` directory in this workspace.
 5. JobLens will appear in your extensions toolbar with its shield icon 🛡️.
 
-## How to Use on Live Webpages
-- Open any job posting on **LinkedIn**, **Naukri**, **Indeed**, or a corporate careers page.
-- Click the **JobLens** shield icon in your browser toolbar (or press `Ctrl+Shift+J`).
-- The **JobLens Side Panel** will open docked to your tab, automatically detect the job opportunity, and provide an instant dynamic threat evaluation.
-- You can also highlight any text on a webpage or email and right-click -> *"Scan selection with JobLens"*.
+## How to Use
+- Open any job listing on **LinkedIn**, **Indeed**, **Naukri**, or corporate careers sites.
+- Click the **JobLens** shield icon in your browser toolbar or press `Ctrl+Shift+J`.
+- The side panel will open and evaluate the listing using local deterministic heuristics without transmitting data to third parties.
+- Select text and right-click -> *"🛡️ Scan selection with JobLens"* to analyze messages or recruiter emails.

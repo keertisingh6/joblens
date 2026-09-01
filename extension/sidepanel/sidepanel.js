@@ -1,69 +1,13 @@
 /**
  * JobLens Manifest V3 Side Panel Controller
- * Handles Active Tab Extraction, Context Menu Events, Local & API Scans, and User Storage
+ * Authoritative integration with JobLensSecurityEngine.
+ * Handles Active Tab Extraction, Context Menu Events, Deterministic Scans, and User Session Persistence.
  */
 
-// Embedded detection patterns for instant evaluation
-const LOCAL_RULES = [
-  {
-    category: "Financial Fraud",
-    pattern: /\b(laptop|macbook|equipment|hardware|kit|device|courier|security|registration|training|interview)\s*(fee|deposit|cost|charge|payment|refundable)\b/i,
-    weight: 38,
-    why: "Legitimate corporate employers ship equipment at company expense. Demanding upfront deposits is the primary hallmark of advance-fee fraud.",
-    action: "Do not send money. Official employers never demand deposits or equipment fees."
-  },
-  {
-    category: "Financial Fraud",
-    pattern: /\b(usdt|crypto|bitcoin|eth|binance|gift\s*card|wire\s*transfer|western\s*union|task\s*recharge)\b/i,
-    weight: 35,
-    why: "Adversaries request irreversible cryptocurrency or gift cards to evade banking fraud recovery systems.",
-    action: "Cease communication immediately. Legitimate companies never process payroll or expenses via crypto."
-  },
-  {
-    category: "Social Engineering",
-    pattern: /\b(telegram|whatsapp|signal|viber)\s*(@|t\.me\/|wa\.me\/|hr|interview|manager|recruiter)\b/i,
-    weight: 28,
-    why: "Diverting candidates from professional platforms to unmonitored encrypted apps enables untraceable impersonation.",
-    action: "Insist on verified enterprise communication through official company email domains."
-  },
-  {
-    category: "Credential / Data Risk",
-    pattern: /\b(aadhaar|pan\s*card|ssn|social\s*security|bank\s*account|otp|password|pin|passport\s*scan)\b/i,
-    weight: 35,
-    why: "Requesting sensitive national ID or banking credentials before a formal contract is a data harvesting risk.",
-    action: "Never provide banking PINs, OTPs, or government IDs during initial screening."
-  },
-  {
-    category: "Credential / Data Risk",
-    pattern: /\b(anydesk|teamviewer|ultraviewer|screen\s*share|remote\s*access|install\s*agent|apk)\b/i,
-    weight: 42,
-    why: "Adversaries use remote access software to harvest keystrokes, browser sessions, and banking tokens.",
-    action: "Never install remote desktop software on candidate devices."
-  },
-  {
-    category: "Social Engineering",
-    pattern: /\b(immediate\s*joining|offer\s*expires\s*in\s*\d+\s*(hours|minutes)|urgent\s*requirement|direct\s*selection\s*without\s*interview)\b/i,
-    weight: 22,
-    why: "Artificial urgency and zero-interview selection are coercive social engineering tactics designed to prevent candidate due diligence.",
-    action: "Legitimate corporate hiring involves structured evaluation stages."
-  },
-  {
-    category: "Impersonation",
-    pattern: /@(gmail\.com|yahoo\.com|outlook\.com|hotmail\.com|rediffmail\.com)\b/i,
-    weight: 18,
-    why: "Recruiters claiming to represent enterprise brands should contact you from their corporate domain.",
-    action: "Cross-check the recruiter's identity on the official corporate careers portal."
-  }
-];
-
-let userAccount = {
-  name: "Candidate",
-  email: "candidate@joblens.security",
-  protectionEnabled: true,
-  threatSensitivity: "STANDARD",
-  onboardingCompleted: true
-};
+let userAccount = null;
+let isAuthenticated = false;
 let scanHistory = [];
+let incidentLogs = [];
 let currentReport = null;
 
 // Initialize on DOM Ready
@@ -71,12 +15,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadState();
   setupEvents();
 
-  if (!userAccount.onboardingCompleted) {
+  if (!isAuthenticated || !userAccount || !userAccount.onboardingCompleted) {
     document.getElementById("view-onboarding")?.classList.remove("hidden");
     document.getElementById("view-main")?.classList.add("hidden");
+    const nameInput = document.getElementById("onboard-name");
+    const emailInput = document.getElementById("onboard-email");
+    if (nameInput) nameInput.value = "";
+    if (emailInput) emailInput.value = "";
   } else {
     document.getElementById("view-onboarding")?.classList.add("hidden");
     document.getElementById("view-main")?.classList.remove("hidden");
+    updateUserSessionUI();
     if (userAccount.protectionEnabled) {
       triggerActiveTabScan();
     }
@@ -85,15 +34,33 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 async function loadState() {
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
-    const data = await chrome.storage.local.get(["joblens_user", "joblens_history"]);
-    if (data.joblens_user) userAccount = data.joblens_user;
+    const data = await chrome.storage.local.get(["joblens_user", "joblens_history", "joblens_incidents"]);
+    if (data.joblens_user && data.joblens_user.onboardingCompleted) {
+      userAccount = data.joblens_user;
+      isAuthenticated = true;
+    } else {
+      userAccount = null;
+      isAuthenticated = false;
+    }
     if (data.joblens_history) scanHistory = data.joblens_history;
+    if (data.joblens_incidents) incidentLogs = data.joblens_incidents;
   } else {
     try {
       const u = localStorage.getItem("joblens_user");
       const h = localStorage.getItem("joblens_history");
-      if (u) userAccount = JSON.parse(u);
+      const inc = localStorage.getItem("joblens_incidents");
+      if (u) {
+        const parsed = JSON.parse(u);
+        if (parsed && parsed.onboardingCompleted) {
+          userAccount = parsed;
+          isAuthenticated = true;
+        } else {
+          userAccount = null;
+          isAuthenticated = false;
+        }
+      }
       if (h) scanHistory = JSON.parse(h);
+      if (inc) incidentLogs = JSON.parse(inc);
     } catch (e) {}
   }
   renderHistory();
@@ -103,18 +70,37 @@ async function saveState() {
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
     await chrome.storage.local.set({
       joblens_user: userAccount,
-      joblens_history: scanHistory
+      joblens_history: scanHistory,
+      joblens_incidents: incidentLogs
     });
   } else {
     try {
-      localStorage.setItem("joblens_user", JSON.stringify(userAccount));
+      if (userAccount) {
+        localStorage.setItem("joblens_user", JSON.stringify(userAccount));
+      } else {
+        localStorage.removeItem("joblens_user");
+      }
       localStorage.setItem("joblens_history", JSON.stringify(scanHistory));
+      localStorage.setItem("joblens_incidents", JSON.stringify(incidentLogs));
     } catch (e) {}
   }
 }
 
+function updateUserSessionUI() {
+  if (!userAccount) return;
+  const nameEl = document.getElementById("user-display-name");
+  const emailEl = document.getElementById("user-display-email");
+  const sensitivitySelect = document.getElementById("settings-sensitivity");
+
+  if (nameEl) nameEl.textContent = userAccount.name || "Candidate User";
+  if (emailEl) emailEl.textContent = userAccount.email || "Not authenticated";
+  if (sensitivitySelect && userAccount.threatSensitivity) {
+    sensitivitySelect.value = userAccount.threatSensitivity;
+  }
+}
+
 function setupEvents() {
-  // Tabs
+  // Navigation Tabs
   document.querySelectorAll(".nav-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
@@ -125,14 +111,28 @@ function setupEvents() {
     });
   });
 
-  // Onboarding Form
+  // Onboarding Form (First Run)
   document.getElementById("onboarding-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    userAccount.name = document.getElementById("onboard-name").value || "Candidate";
-    userAccount.email = document.getElementById("onboard-email").value || "user@joblens.security";
-    userAccount.threatSensitivity = document.getElementById("onboard-sensitivity").value;
-    userAccount.onboardingCompleted = true;
+    const nameVal = (document.getElementById("onboard-name")?.value || "").trim();
+    const emailVal = (document.getElementById("onboard-email")?.value || "").trim();
+    const sensVal = document.getElementById("onboard-sensitivity")?.value || "STANDARD";
+
+    if (!nameVal || !emailVal) return;
+
+    userAccount = {
+      uid: `usr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      name: nameVal,
+      email: emailVal,
+      threatSensitivity: sensVal,
+      protectionEnabled: true,
+      onboardingCompleted: true,
+      authenticatedAt: new Date().toISOString()
+    };
+    isAuthenticated = true;
     saveState();
+    updateUserSessionUI();
+
     document.getElementById("view-onboarding")?.classList.add("hidden");
     document.getElementById("view-main")?.classList.remove("hidden");
     triggerActiveTabScan();
@@ -141,10 +141,19 @@ function setupEvents() {
   // Protection Toggle
   const toggle = document.getElementById("protection-toggle");
   toggle?.addEventListener("change", () => {
+    if (!userAccount) return;
     userAccount.protectionEnabled = toggle.checked;
     const statusText = document.getElementById("protection-status-text");
     if (statusText) statusText.textContent = toggle.checked ? "Protection: ON" : "Protection: OFF";
     saveState();
+  });
+
+  // Settings Sensitivity Change
+  document.getElementById("settings-sensitivity")?.addEventListener("change", (e) => {
+    if (userAccount) {
+      userAccount.threatSensitivity = e.target.value;
+      saveState();
+    }
   });
 
   // Actions
@@ -163,8 +172,8 @@ function setupEvents() {
     if (!text.trim()) return;
     document.getElementById("manual-input-box")?.classList.add("hidden");
     analyzeOpportunity({
-      platform: "Custom Text / Chat",
-      sourceType: "MANUAL_INPUT",
+      platform: "Custom Text Input",
+      sourceType: "RECRUITER_CHAT",
       jobTitle: "Direct Recruiter Message",
       companyName: "Unspecified Entity",
       jobDescription: text
@@ -178,19 +187,22 @@ function setupEvents() {
           chrome.tabs.sendMessage(tabs[0].id, { type: "GET_SELECTED_TEXT" }, (res) => {
             if (res?.selectedText) {
               analyzeOpportunity({
-                platform: "Web Selection",
-                sourceType: "SELECTION",
-                jobTitle: "Highlighted Recruitment Text",
-                companyName: "Extracted Selection",
+                platform: "Page Text Selection",
+                sourceType: "JOB_POSTING",
+                jobTitle: "Highlighted Recruitment Selection",
+                companyName: "Active Page Selection",
                 jobDescription: res.selectedText,
                 applicationUrl: res.url
               });
             } else {
               document.getElementById("manual-input-box")?.classList.remove("hidden");
+              document.getElementById("manual-paste-text")?.focus();
             }
           });
         }
       });
+    } else {
+      document.getElementById("manual-input-box")?.classList.remove("hidden");
     }
   });
 
@@ -201,28 +213,55 @@ function setupEvents() {
 
   document.getElementById("btn-copy-report")?.addEventListener("click", () => {
     if (!currentReport) return;
-    const reportText = `JOBLENS SECURITY REPORT\nSource: ${currentReport.rawInput?.platform || "Web"}\nJob: ${currentReport.jobTitle}\nThreat Score: ${currentReport.overallScore}/100 (${currentReport.overallSeverity})\nThreats: ${currentReport.categories?.join(", ") || "None"}\nRecommendation: ${currentReport.action}\nTimestamp: ${currentReport.timestamp}`;
-    navigator.clipboard.writeText(reportText);
-    alert("Copied forensic report to clipboard!");
+    const signalsSummary = (currentReport.signals || []).map(s => `• [${s.category}] ${s.title} (${s.contribution} pts): "${s.evidence}"`).join("\n");
+    const reportText = `JOBLENS RECRUITMENT SECURITY FORENSIC REPORT\n=========================================\nTarget: ${currentReport.jobTitle}\nEmployer: ${currentReport.companyName}\nSource: ${currentReport.rawInput?.platform || "Web"}\nThreat Score: ${currentReport.overallScore}/100 (${currentReport.overallSeverity})\nUser Override Status: ${currentReport.userStatus || "None"}\n\nEVIDENCE & WHY THIS SCORE:\n${signalsSummary || "No threat signals detected."}\n\nRECOMMENDED DEFENSIVE ACTION:\n${currentReport.action}\n\nGenerated: ${currentReport.timestamp}`;
+    
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(reportText);
+      alert("Forensic report copied to clipboard.");
+    }
   });
 
   document.getElementById("btn-save-report")?.addEventListener("click", () => {
     if (currentReport) {
       saveToHistory(currentReport);
-      alert("Report saved to JobLens local history.");
+      alert("Opportunity evaluation saved to local history.");
     }
   });
 
+  // Mark Safe preserves score and sets status: "MARKED_SAFE"
   document.getElementById("btn-mark-safe")?.addEventListener("click", () => {
-    if (currentReport) {
-      currentReport.overallScore = 0;
-      currentReport.overallSeverity = "LOW";
-      renderScanResult(currentReport);
+    if (!currentReport) return;
+    if (currentReport.userStatus === "MARKED_SAFE") {
+      currentReport.userStatus = null;
+    } else {
+      currentReport.userStatus = "MARKED_SAFE";
     }
+    saveToHistory(currentReport);
+    renderScanResult(currentReport);
   });
 
+  // Create Incident Report (Accurate local forensic log)
   document.getElementById("btn-report-scam")?.addEventListener("click", () => {
-    alert("Scam report logged with Incident ID: INC-" + Date.now().toString(36).toUpperCase());
+    if (!currentReport) return;
+    const incId = `INC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}-${Date.now().toString(36).toUpperCase()}`;
+    const incident = {
+      incidentId: incId,
+      timestamp: new Date().toISOString(),
+      companyName: currentReport.companyName || "Unspecified Entity",
+      jobTitle: currentReport.jobTitle || "Recruitment Opportunity",
+      overallScore: currentReport.overallScore,
+      severity: currentReport.overallSeverity,
+      detectedSignals: currentReport.signals || [],
+      sourceUrl: currentReport.rawInput?.applicationUrl || "Direct Text",
+      platform: currentReport.rawInput?.platform || "Web"
+    };
+
+    incidentLogs.unshift(incident);
+    if (incidentLogs.length > 50) incidentLogs.pop();
+    saveState();
+
+    alert(`Incident logged to JobLens local threat registry.\n\nIncident ID: ${incId}\nEmployer: ${incident.companyName}\nCalculated Risk: ${incident.overallScore}/100 (${incident.severity})\n\nLocal forensic record created.`);
   });
 
   document.getElementById("btn-clear-history")?.addEventListener("click", () => {
@@ -231,25 +270,98 @@ function setupEvents() {
     renderHistory();
   });
 
+  // Sign Out / Reset Session
   document.getElementById("btn-logout")?.addEventListener("click", () => {
-    userAccount.onboardingCompleted = false;
-    saveState();
-    location.reload();
+    userAccount = null;
+    isAuthenticated = false;
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.remove(["joblens_user"]);
+    }
+    try {
+      localStorage.removeItem("joblens_user");
+    } catch (e) {}
+
+    const nameInput = document.getElementById("onboard-name");
+    const emailInput = document.getElementById("onboard-email");
+    if (nameInput) nameInput.value = "";
+    if (emailInput) emailInput.value = "";
+
+    document.getElementById("view-main")?.classList.add("hidden");
+    document.getElementById("view-onboarding")?.classList.remove("hidden");
+
+    if (typeof chrome !== "undefined" && chrome.action?.setBadgeText) {
+      chrome.action.setBadgeText({ text: "" });
+    }
   });
 
-  // Listen for messages from background (e.g. context menus)
+  // Demo Scenarios (Controlled Benchmark Scenarios)
+  document.getElementById("btn-demo-advance-fee")?.addEventListener("click", () => {
+    document.querySelector('[data-tab="tab-scan"]')?.click();
+    analyzeOpportunity({
+      isDemoMode: true,
+      platform: "Demo: Advance-Fee Scenario",
+      sourceType: "JOB_POSTING",
+      jobTitle: "Senior DevOps Engineer",
+      companyName: "Global Apex Tech",
+      recruiterEmail: "recruiter.apex@gmail.com",
+      jobDescription: "Congratulations! You have been selected. To receive your MacBook Pro M3 and home workstation hardware, candidates must submit a $250 refundable equipment courier and insurance deposit to our logistics partner within 24 hours."
+    });
+  });
+
+  document.getElementById("btn-demo-task-scam")?.addEventListener("click", () => {
+    document.querySelector('[data-tab="tab-scan"]')?.click();
+    analyzeOpportunity({
+      isDemoMode: true,
+      platform: "Demo: YouTube Task Scam",
+      sourceType: "RECRUITER_CHAT",
+      jobTitle: "Online Digital Review Specialist",
+      companyName: "Prime Marketing Media",
+      recruiterEmail: "hiring@yahoo.com",
+      jobDescription: "Simple part-time work from home. Like YouTube videos and hotel reviews to earn ₹3,500 daily payout guaranteed. Complete initial tasks and connect on Telegram @PrimeHR for task commission recharge."
+    });
+  });
+
+  document.getElementById("btn-demo-whatsapp-urgency")?.addEventListener("click", () => {
+    document.querySelector('[data-tab="tab-scan"]')?.click();
+    analyzeOpportunity({
+      isDemoMode: true,
+      platform: "Demo: WhatsApp Urgency",
+      sourceType: "RECRUITER_CHAT",
+      jobTitle: "Data Analyst",
+      companyName: "Apex Consultants",
+      jobDescription: "Immediate selection without interview! Limited slots left, offer expires in 24 hours. Contact kindly via WhatsApp wa.me/919876543210 to claim your onboarding kit."
+    });
+  });
+
+  document.getElementById("btn-demo-legit-job")?.addEventListener("click", () => {
+    document.querySelector('[data-tab="tab-scan"]')?.click();
+    analyzeOpportunity({
+      isDemoMode: true,
+      platform: "Demo: Legitimate Posting",
+      sourceType: "JOB_POSTING",
+      jobTitle: "Senior Software Engineer (Distributed Systems)",
+      companyName: "Stripe",
+      recruiterEmail: "talent@stripe.com",
+      applicationUrl: "https://stripe.com/jobs/senior-software-engineer",
+      jobDescription: "We are looking for a Senior Software Engineer to design, build, and scale our core payment infrastructure. Responsibilities include architecting high-throughput distributed systems, collaborating with product managers, and mentoring engineers. Qualifications: 5+ years of experience in Java, Go, or Rust, strong foundation in relational databases, and experience with distributed consensus algorithms. Compensation includes base salary, equity, and comprehensive health benefits. Apply through our official careers portal."
+    });
+  });
+
+  // Listen for messages from background worker
   if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === "JOBLENS_SCAN_SELECTION" && msg.text) {
+        document.querySelector('[data-tab="tab-scan"]')?.click();
         analyzeOpportunity({
           platform: "Selected Text",
-          sourceType: "SELECTION",
-          jobTitle: "Highlighted Message",
+          sourceType: "RECRUITER_CHAT",
+          jobTitle: "Selected Recruitment Message",
           companyName: "Web Selection",
           jobDescription: msg.text,
           applicationUrl: msg.url
         });
       } else if (msg.type === "JOBLENS_TRIGGER_PAGE_SCAN") {
+        document.querySelector('[data-tab="tab-scan"]')?.click();
         triggerActiveTabScan();
       }
     });
@@ -260,7 +372,10 @@ function triggerActiveTabScan() {
   if (typeof chrome !== "undefined" && chrome.tabs?.query) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const activeTab = tabs[0];
-      if (!activeTab?.id) return;
+      if (!activeTab?.id || !activeTab.url || activeTab.url.startsWith("chrome://") || activeTab.url.startsWith("chrome-extension://")) {
+        showNoJobState("Active tab scanning requires a public web page (HTTP/HTTPS). Use Custom Text or select text to scan.");
+        return;
+      }
 
       document.getElementById("scan-loading")?.classList.remove("hidden");
       document.getElementById("scan-result-card")?.classList.add("hidden");
@@ -269,24 +384,38 @@ function triggerActiveTabScan() {
       chrome.tabs.sendMessage(activeTab.id, { type: "EXTRACT_PAGE_JOB_DATA" }, (response) => {
         document.getElementById("scan-loading")?.classList.add("hidden");
         if (chrome.runtime.lastError || !response || !response.success) {
-          document.getElementById("no-job-card")?.classList.remove("hidden");
-          document.getElementById("detected-platform").textContent = "Web Page";
-          document.getElementById("target-job-title").textContent = activeTab.title || "Web Page";
-          document.getElementById("target-company-name").textContent = new URL(activeTab.url || "https://example.com").hostname;
+          showNoJobState("JobLens couldn't identify a recruitment opportunity on this page.");
+          const platEl = document.getElementById("detected-platform");
+          const titleEl = document.getElementById("target-job-title");
+          const compEl = document.getElementById("target-company-name");
+          if (platEl) platEl.textContent = "Web Page";
+          if (titleEl) titleEl.textContent = activeTab.title || "Active Web Page";
+          if (compEl) {
+            try {
+              compEl.textContent = new URL(activeTab.url).hostname;
+            } catch (e) {
+              compEl.textContent = "Current Web Page";
+            }
+          }
         } else {
           analyzeOpportunity(response);
         }
       });
     });
   } else {
-    // Fallback for standalone preview
-    analyzeOpportunity({
-      platform: "LinkedIn",
-      sourceType: "JOB_POSTING",
-      jobTitle: "Senior Frontend Engineer",
-      companyName: "TechCorp Global",
-      jobDescription: "Pay $150 refundable equipment insurance deposit for MacBook Pro M3."
-    });
+    // Preview environment without active Chrome extension tab
+    showNoJobState("Extension preview mode: Select text or run a demo scenario from the Radar tab.");
+  }
+}
+
+function showNoJobState(message) {
+  document.getElementById("scan-loading")?.classList.add("hidden");
+  document.getElementById("scan-result-card")?.classList.add("hidden");
+  const noJobCard = document.getElementById("no-job-card");
+  if (noJobCard) {
+    noJobCard.classList.remove("hidden");
+    const p = noJobCard.querySelector("p");
+    if (p && message) p.textContent = message;
   }
 }
 
@@ -297,66 +426,53 @@ function analyzeOpportunity(inputData) {
   document.getElementById("context-card")?.classList.remove("hidden");
 
   document.getElementById("detected-platform").textContent = inputData.platform || "Web";
-  document.getElementById("detected-type").textContent = inputData.sourceType || "Job Content";
+  document.getElementById("detected-type").textContent = inputData.sourceType || "Recruitment Content";
   document.getElementById("target-job-title").textContent = inputData.jobTitle || "Recruitment Opportunity";
-  document.getElementById("target-company-name").textContent = inputData.companyName || "Employer";
+  document.getElementById("target-company-name").textContent = inputData.companyName || "Unspecified Entity";
   document.getElementById("target-contact-info").textContent = inputData.recruiterEmail ? `✉️ ${inputData.recruiterEmail}` : "";
 
-  // Deterministic local evaluation
-  const report = evaluateLocally(inputData);
+  // Call Authoritative Single Source of Truth Security Engine
+  let report;
+  if (typeof JobLensSecurityEngine !== "undefined" && JobLensSecurityEngine.runSecurityEvaluation) {
+    report = JobLensSecurityEngine.runSecurityEvaluation(inputData);
+  } else if (typeof window !== "undefined" && window.JobLensSecurityEngine?.runSecurityEvaluation) {
+    report = window.JobLensSecurityEngine.runSecurityEvaluation(inputData);
+  } else {
+    // Basic fallback calculation if engine script tag was delayed
+    report = {
+      id: `scan_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      jobTitle: inputData.jobTitle || "Recruitment Opportunity",
+      companyName: inputData.companyName || "Unspecified Entity",
+      overallScore: 0,
+      overallSeverity: "LOW",
+      categories: [],
+      signals: [],
+      trustAdjustments: [],
+      compoundInteractions: [],
+      attackChain: [],
+      why: "Evaluated with local security heuristics.",
+      action: "Verify recruiter credentials through official channels.",
+      rawInput: inputData
+    };
+  }
+
+  if (inputData.isDemoMode) {
+    report.isDemoMode = true;
+  }
+
   currentReport = report;
   saveToHistory(report);
   renderScanResult(report);
 
-  // Update extension badge
+  // Update extension action badge
   if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
     chrome.runtime.sendMessage({
       type: "UPDATE_RISK_BADGE",
       severity: report.overallSeverity,
       score: report.overallScore
-    });
+    }).catch(() => {});
   }
-}
-
-function evaluateLocally(data) {
-  const text = `${data.jobTitle} ${data.companyName} ${data.jobDescription} ${data.recruiterEmail} ${data.applicationUrl}`;
-  let score = 0;
-  const detectedSignals = [];
-  const categories = new Set();
-
-  for (const rule of LOCAL_RULES) {
-    const match = text.match(rule.pattern);
-    if (match) {
-      score += rule.weight;
-      categories.add(rule.category);
-      detectedSignals.push({
-        title: rule.category,
-        evidence: match[0],
-        why: rule.why,
-        action: rule.action
-      });
-    }
-  }
-
-  score = Math.min(100, score);
-  let severity = "LOW";
-  if (score >= 75) severity = "CRITICAL";
-  else if (score >= 45) severity = "HIGH";
-  else if (score >= 20) severity = "MEDIUM";
-
-  return {
-    id: `scan_${Date.now()}`,
-    timestamp: new Date().toISOString(),
-    jobTitle: data.jobTitle,
-    companyName: data.companyName,
-    overallScore: score,
-    overallSeverity: severity,
-    categories: Array.from(categories),
-    signals: detectedSignals,
-    why: detectedSignals[0]?.why || "Opportunity adheres to normal recruitment patterns.",
-    action: detectedSignals[0]?.action || "Proceed with standard professional verification.",
-    rawInput: data
-  };
 }
 
 function renderScanResult(report) {
@@ -364,65 +480,146 @@ function renderScanResult(report) {
   document.getElementById("no-job-card")?.classList.add("hidden");
   document.getElementById("scan-result-card")?.classList.remove("hidden");
 
+  // Demo Banner
+  const demoBanner = document.getElementById("demo-mode-banner");
+  if (demoBanner) {
+    if (report.isDemoMode) demoBanner.classList.remove("hidden");
+    else demoBanner.classList.add("hidden");
+  }
+
+  // User Status Override Banner
+  const statusBanner = document.getElementById("user-status-banner");
+  const markSafeBtn = document.getElementById("btn-mark-safe");
+  if (statusBanner) {
+    if (report.userStatus === "MARKED_SAFE") {
+      statusBanner.classList.remove("hidden");
+      const detail = document.getElementById("user-status-detail");
+      if (detail) detail.textContent = `Original calculated risk score: ${report.overallScore}/100 (${report.overallSeverity}). Forensic audit trail preserved.`;
+      if (markSafeBtn) markSafeBtn.textContent = "Unmark Safe";
+    } else {
+      statusBanner.classList.add("hidden");
+      if (markSafeBtn) markSafeBtn.textContent = "Mark Safe";
+    }
+  }
+
   document.getElementById("threat-score-val").textContent = report.overallScore;
-  document.getElementById("score-progress-fill").style.width = `${report.overallScore}%`;
+  const progressFill = document.getElementById("score-progress-fill");
+  if (progressFill) progressFill.style.width = `${report.overallScore}%`;
 
   const banner = document.getElementById("risk-banner");
   banner.className = "risk-banner";
   const icon = document.getElementById("risk-badge-icon");
   const text = document.getElementById("risk-badge-text");
-  const fill = document.getElementById("score-progress-fill");
 
   if (report.overallSeverity === "CRITICAL") {
     banner.classList.add("risk-critical");
-    icon.textContent = "🚨";
-    text.textContent = "RECRUITMENT SCAM DETECTED";
-    fill.style.backgroundColor = "var(--color-critical)";
+    if (icon) icon.textContent = "🚨";
+    if (text) text.textContent = "HIGH-RISK FRAUD SIGNALS DETECTED";
+    if (progressFill) progressFill.style.backgroundColor = "var(--color-critical)";
   } else if (report.overallSeverity === "HIGH") {
     banner.classList.add("risk-high");
-    icon.textContent = "⚠️";
-    text.textContent = "HIGH RECRUITMENT RISK";
-    fill.style.backgroundColor = "var(--color-high)";
+    if (icon) icon.textContent = "⚠️";
+    if (text) text.textContent = "SUSPICIOUS RECRUITMENT PATTERNS";
+    if (progressFill) progressFill.style.backgroundColor = "var(--color-high)";
   } else if (report.overallSeverity === "MEDIUM") {
     banner.classList.add("risk-med");
-    icon.textContent = "⚡";
-    text.textContent = "MODERATE RISK SIGNALS";
-    fill.style.backgroundColor = "var(--color-med)";
+    if (icon) icon.textContent = "⚡";
+    if (text) text.textContent = "MODERATE RISK INDICATORS";
+    if (progressFill) progressFill.style.backgroundColor = "var(--color-med)";
   } else {
     banner.classList.add("risk-low");
-    icon.textContent = "🟢";
-    text.textContent = "LOW RISK OPPORTUNITY";
-    fill.style.backgroundColor = "var(--color-low)";
+    if (icon) icon.textContent = "🟢";
+    if (text) text.textContent = "LOW-RISK OPPORTUNITY";
+    if (progressFill) progressFill.style.backgroundColor = "var(--color-low)";
   }
 
-  if (report.overallSeverity === "LOW") {
+  if (report.overallSeverity === "LOW" && (!report.signals || report.signals.length === 0)) {
     document.getElementById("trust-box")?.classList.remove("hidden");
     document.getElementById("threat-breakdown-box")?.classList.add("hidden");
   } else {
     document.getElementById("trust-box")?.classList.add("hidden");
     document.getElementById("threat-breakdown-box")?.classList.remove("hidden");
 
+    // Category pills
     const pillsRow = document.getElementById("category-pills-row");
-    pillsRow.innerHTML = "";
-    (report.categories || []).forEach(cat => {
-      const pill = document.createElement("span");
-      pill.className = "pill pill-danger";
-      pill.textContent = cat;
-      pillsRow.appendChild(pill);
-    });
+    if (pillsRow) {
+      pillsRow.innerHTML = "";
+      (report.categories || []).forEach(cat => {
+        const pill = document.createElement("span");
+        pill.className = "pill pill-danger";
+        pill.textContent = cat;
+        pillsRow.appendChild(pill);
+      });
+    }
 
-    document.getElementById("why-text").textContent = report.why;
-    document.getElementById("action-text").textContent = report.action;
+    // Explainable Evidence Breakdown
+    const signalsContainer = document.getElementById("why-signals-breakdown");
+    if (signalsContainer) {
+      signalsContainer.innerHTML = "";
+      if (report.signals && report.signals.length > 0) {
+        report.signals.forEach(sig => {
+          const card = document.createElement("div");
+          card.className = "why-signal-card";
+          
+          let sevColor = "#ef4444";
+          if (sig.severity === "MEDIUM") sevColor = "#eab308";
+          if (sig.severity === "LOW") sevColor = "#10b981";
 
-    const list = document.getElementById("evidence-list");
-    list.innerHTML = "";
-    document.getElementById("evidence-count").textContent = report.signals?.length || 0;
-    (report.signals || []).forEach(sig => {
-      const item = document.createElement("div");
-      item.className = "evidence-item";
-      item.innerHTML = `<div class="evidence-title">• ${sig.title}</div><div class="evidence-snippet">"${sig.evidence}"</div>`;
-      list.appendChild(item);
-    });
+          card.innerHTML = `
+            <div class="why-signal-header">
+              <span class="why-signal-title">
+                <span style="color:${sevColor}">●</span> ${sig.title}
+              </span>
+              <span class="why-signal-weight">+${sig.weight} pts</span>
+            </div>
+            <div class="why-signal-evidence">"${sig.evidence}"</div>
+            <div class="why-signal-why">${sig.why}</div>
+          `;
+          signalsContainer.appendChild(card);
+        });
+      } else {
+        signalsContainer.innerHTML = `<p class="text-xs text-dim">No high-risk detection rules triggered.</p>`;
+      }
+    }
+
+    // Compound Multipliers
+    const compoundBox = document.getElementById("compound-box");
+    const compoundList = document.getElementById("compound-list");
+    if (compoundBox && compoundList) {
+      if (report.compoundInteractions && report.compoundInteractions.length > 0) {
+        compoundBox.classList.remove("hidden");
+        compoundList.innerHTML = "";
+        report.compoundInteractions.forEach(c => {
+          const item = document.createElement("div");
+          item.className = "compound-item";
+          item.innerHTML = `<span>⚠️ ${c.title}</span><strong>${c.adjustment}</strong>`;
+          compoundList.appendChild(item);
+        });
+      } else {
+        compoundBox.classList.add("hidden");
+      }
+    }
+
+    // Positive Trust Adjustments
+    const adjustmentsBox = document.getElementById("adjustments-box");
+    const adjustmentsList = document.getElementById("adjustments-list");
+    if (adjustmentsBox && adjustmentsList) {
+      if (report.trustAdjustments && report.trustAdjustments.length > 0) {
+        adjustmentsBox.classList.remove("hidden");
+        adjustmentsList.innerHTML = "";
+        report.trustAdjustments.forEach(t => {
+          const item = document.createElement("div");
+          item.className = "adjustment-item";
+          item.innerHTML = `<span>🟢 ${t.title} (${t.evidence})</span><strong>${t.adjustment}</strong>`;
+          adjustmentsList.appendChild(item);
+        });
+      } else {
+        adjustmentsBox.classList.add("hidden");
+      }
+    }
+
+    const actionText = document.getElementById("action-text");
+    if (actionText) actionText.textContent = report.action;
   }
 }
 
@@ -430,12 +627,19 @@ function saveToHistory(report) {
   scanHistory = scanHistory.filter(h => h.id !== report.id && h.jobTitle !== report.jobTitle);
   scanHistory.unshift({
     id: report.id,
-    timestamp: new Date().toISOString(),
+    timestamp: report.timestamp || new Date().toISOString(),
     jobTitle: report.jobTitle,
     companyName: report.companyName,
     overallScore: report.overallScore,
     overallSeverity: report.overallSeverity,
-    why: report.why
+    userStatus: report.userStatus,
+    why: report.why,
+    signals: report.signals,
+    categories: report.categories,
+    trustAdjustments: report.trustAdjustments,
+    compoundInteractions: report.compoundInteractions,
+    action: report.action,
+    rawInput: report.rawInput
   });
   if (scanHistory.length > 25) scanHistory.pop();
   saveState();
@@ -454,15 +658,17 @@ function renderHistory() {
     const el = document.createElement("div");
     el.className = "history-item";
     const color = item.overallSeverity === "CRITICAL" || item.overallSeverity === "HIGH" ? "#ef4444" : "#10b981";
+    const statusNote = item.userStatus === "MARKED_SAFE" ? " • <span style='color:#86efac'>Marked Safe</span>" : "";
     el.innerHTML = `
       <div class="history-item-top">
         <span class="history-item-title">${item.jobTitle || "Job Opportunity"}</span>
         <span class="pill" style="background-color:${color}22; color:${color}; border:1px solid ${color}44;">${item.overallScore}/100</span>
       </div>
-      <div class="history-item-company">${item.companyName || "Employer"} • ${new Date(item.timestamp).toLocaleDateString()}</div>
+      <div class="history-item-company">${item.companyName || "Employer"}${statusNote} • ${new Date(item.timestamp).toLocaleDateString()}</div>
     `;
     el.addEventListener("click", () => {
       document.querySelector('[data-tab="tab-scan"]')?.click();
+      currentReport = item;
       renderScanResult(item);
     });
     container.appendChild(el);

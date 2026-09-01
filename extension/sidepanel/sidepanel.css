@@ -141,3 +141,133 @@ input:checked + .slider:before { transform: translateX(12px); }
 .privacy-note { font-size: 10px; color: var(--text-dim); margin-top: 12px; }
 .safety-checklist { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .check-item { font-size: 11px; color: #cbd5e1; display: flex; align-items: flex-start; gap: 6px; cursor: pointer; }
+
+/* User Override Banner */
+.user-override-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  color: #86efac;
+}
+.user-override-banner .override-icon { font-size: 16px; }
+.user-override-banner .override-info p { font-size: 10px; color: #a7f3d0; margin-top: 1px; }
+
+/* Demo Banner */
+.demo-banner {
+  background-color: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: #7dd3fc;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* Explainable Evidence Breakdown */
+.why-signals-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.why-signal-card {
+  background-color: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+}
+.why-signal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.why-signal-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.why-signal-weight {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.why-signal-evidence {
+  font-size: 10px;
+  font-family: monospace;
+  background-color: rgba(15, 23, 42, 0.8);
+  border-left: 2px solid var(--color-critical);
+  padding: 3px 6px;
+  border-radius: 2px;
+  color: #cbd5e1;
+  margin: 4px 0;
+  word-break: break-all;
+}
+.why-signal-why {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+/* Compound and Trust Adjustments */
+.compound-box, .adjustments-box {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background-color: rgba(0,0,0,0.3);
+  border: 1px solid var(--border-color);
+}
+.compound-list, .adjustments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.compound-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #fdba74;
+  background-color: rgba(249, 115, 22, 0.1);
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(249, 115, 22, 0.2);
+}
+.adjustment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #86efac;
+  background-color: rgba(16, 185, 129, 0.1);
+  padding: 3px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+.pill-success {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #86efac;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  display: inline-block;
+}
+.user-info-group {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  padding: 8px;
+  border-radius: 6px;
+}
