@@ -92,6 +92,7 @@ for (const base of [EXT_DIR, PUBLIC_EXT_DIR]) {
   fs.mkdirSync(path.join(base, "content"), { recursive: true });
   fs.mkdirSync(path.join(base, "sidepanel"), { recursive: true });
   fs.mkdirSync(path.join(base, "detectors"), { recursive: true });
+  fs.mkdirSync(path.join(base, "auth"), { recursive: true });
 }
 
 // Generate icons

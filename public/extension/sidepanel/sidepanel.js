@@ -1,7 +1,6 @@
 /**
  * JobLens Manifest V3 Side Panel Controller
- * Authoritative integration with JobLensSecurityEngine.
- * Handles Active Tab Extraction, Context Menu Events, Deterministic Scans, and User Session Persistence.
+ * True Firebase Authentication & Authoritative Deterministic Security Engine
  */
 
 let userAccount = null;
@@ -12,36 +11,16 @@ let currentReport = null;
 
 // Initialize on DOM Ready
 document.addEventListener("DOMContentLoaded", async () => {
-  await loadState();
   setupEvents();
-
-  if (!isAuthenticated || !userAccount || !userAccount.onboardingCompleted) {
-    document.getElementById("view-onboarding")?.classList.remove("hidden");
-    document.getElementById("view-main")?.classList.add("hidden");
-    const nameInput = document.getElementById("onboard-name");
-    const emailInput = document.getElementById("onboard-email");
-    if (nameInput) nameInput.value = "";
-    if (emailInput) emailInput.value = "";
-  } else {
-    document.getElementById("view-onboarding")?.classList.add("hidden");
-    document.getElementById("view-main")?.classList.remove("hidden");
-    updateUserSessionUI();
-    if (userAccount.protectionEnabled) {
-      triggerActiveTabScan();
-    }
-  }
+  await loadState();
 });
 
 async function loadState() {
+  let storedUser = null;
+
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
     const data = await chrome.storage.local.get(["joblens_user", "joblens_history", "joblens_incidents"]);
-    if (data.joblens_user && data.joblens_user.onboardingCompleted) {
-      userAccount = data.joblens_user;
-      isAuthenticated = true;
-    } else {
-      userAccount = null;
-      isAuthenticated = false;
-    }
+    storedUser = data.joblens_user;
     if (data.joblens_history) scanHistory = data.joblens_history;
     if (data.joblens_incidents) incidentLogs = data.joblens_incidents;
   } else {
@@ -49,20 +28,26 @@ async function loadState() {
       const u = localStorage.getItem("joblens_user");
       const h = localStorage.getItem("joblens_history");
       const inc = localStorage.getItem("joblens_incidents");
-      if (u) {
-        const parsed = JSON.parse(u);
-        if (parsed && parsed.onboardingCompleted) {
-          userAccount = parsed;
-          isAuthenticated = true;
-        } else {
-          userAccount = null;
-          isAuthenticated = false;
-        }
-      }
+      if (u) storedUser = JSON.parse(u);
       if (h) scanHistory = JSON.parse(h);
       if (inc) incidentLogs = JSON.parse(inc);
     } catch (e) {}
   }
+
+  if (storedUser && storedUser.uid && storedUser.idToken) {
+    userAccount = storedUser;
+    isAuthenticated = true;
+    showMainView();
+    updateUserSessionUI();
+    if (userAccount.protectionEnabled) {
+      triggerActiveTabScan();
+    }
+  } else {
+    userAccount = null;
+    isAuthenticated = false;
+    showAuthView();
+  }
+
   renderHistory();
 }
 
@@ -86,14 +71,50 @@ async function saveState() {
   }
 }
 
+function showAuthView() {
+  document.getElementById("view-onboarding")?.classList.remove("hidden");
+  document.getElementById("view-main")?.classList.add("hidden");
+  hideAuthError();
+}
+
+function showMainView() {
+  document.getElementById("view-onboarding")?.classList.add("hidden");
+  document.getElementById("view-main")?.classList.remove("hidden");
+}
+
+function showAuthError(msg) {
+  const box = document.getElementById("auth-error-box");
+  const text = document.getElementById("auth-error-text");
+  if (box && text) {
+    text.textContent = msg;
+    box.classList.remove("hidden");
+  }
+}
+
+function hideAuthError() {
+  document.getElementById("auth-error-box")?.classList.add("hidden");
+}
+
 function updateUserSessionUI() {
   if (!userAccount) return;
   const nameEl = document.getElementById("user-display-name");
   const emailEl = document.getElementById("user-display-email");
+  const uidEl = document.getElementById("user-display-uid");
+  const badgeEl = document.getElementById("user-session-badge");
   const sensitivitySelect = document.getElementById("settings-sensitivity");
 
   if (nameEl) nameEl.textContent = userAccount.name || "Candidate User";
-  if (emailEl) emailEl.textContent = userAccount.email || "Not authenticated";
+  if (emailEl) emailEl.textContent = userAccount.email || "Authenticated";
+  if (uidEl) uidEl.textContent = `UID: ${userAccount.uid}`;
+  if (badgeEl) {
+    if (userAccount.isAnonymous) {
+      badgeEl.textContent = "Verified Guest Firebase Session";
+      badgeEl.style.color = "#38bdf8";
+    } else {
+      badgeEl.textContent = "Verified Firebase JWT Account";
+      badgeEl.style.color = "#86efac";
+    }
+  }
   if (sensitivitySelect && userAccount.threatSensitivity) {
     sensitivitySelect.value = userAccount.threatSensitivity;
   }
@@ -111,31 +132,169 @@ function setupEvents() {
     });
   });
 
-  // Onboarding Form (First Run)
-  document.getElementById("onboarding-form")?.addEventListener("submit", (e) => {
+  // Auth View Tab Switching (Sign In vs Sign Up)
+  const tabSignIn = document.getElementById("btn-tab-signin");
+  const tabSignUp = document.getElementById("btn-tab-signup");
+  const formSignIn = document.getElementById("form-signin");
+  const formSignUp = document.getElementById("form-signup");
+
+  tabSignIn?.addEventListener("click", () => {
+    tabSignIn.classList.add("active");
+    tabSignUp?.classList.remove("active");
+    formSignIn?.classList.remove("hidden");
+    formSignUp?.classList.add("hidden");
+    hideAuthError();
+  });
+
+  tabSignUp?.addEventListener("click", () => {
+    tabSignUp.classList.add("active");
+    tabSignIn?.classList.remove("active");
+    formSignUp?.classList.remove("hidden");
+    formSignIn?.classList.add("hidden");
+    hideAuthError();
+  });
+
+  // Real Email & Password Sign In
+  formSignIn?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const nameVal = (document.getElementById("onboard-name")?.value || "").trim();
-    const emailVal = (document.getElementById("onboard-email")?.value || "").trim();
-    const sensVal = document.getElementById("onboard-sensitivity")?.value || "STANDARD";
+    hideAuthError();
 
-    if (!nameVal || !emailVal) return;
+    const email = document.getElementById("signin-email")?.value;
+    const password = document.getElementById("signin-password")?.value;
+    const submitBtn = document.getElementById("btn-submit-signin");
 
-    userAccount = {
-      uid: `usr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-      name: nameVal,
-      email: emailVal,
-      threatSensitivity: sensVal,
-      protectionEnabled: true,
-      onboardingCompleted: true,
-      authenticatedAt: new Date().toISOString()
-    };
-    isAuthenticated = true;
-    saveState();
-    updateUserSessionUI();
+    if (!email || !password) return;
 
-    document.getElementById("view-onboarding")?.classList.add("hidden");
-    document.getElementById("view-main")?.classList.remove("hidden");
-    triggerActiveTabScan();
+    try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Authenticating with Firebase...";
+      }
+
+      const authService = typeof JobLensAuthService !== "undefined" ? JobLensAuthService : window.JobLensAuthService;
+      if (!authService) throw new Error("Authentication service unavailable");
+
+      const authRes = await authService.signInWithEmailPassword(email, password);
+
+      userAccount = {
+        uid: authRes.uid,
+        name: authRes.name,
+        email: authRes.email,
+        idToken: authRes.idToken,
+        refreshToken: authRes.refreshToken,
+        isAnonymous: false,
+        threatSensitivity: "STANDARD",
+        protectionEnabled: true,
+        authenticatedAt: authRes.authenticatedAt
+      };
+      isAuthenticated = true;
+
+      await saveState();
+      updateUserSessionUI();
+      showMainView();
+      triggerActiveTabScan();
+    } catch (err) {
+      showAuthError(err.message || "Failed to sign in. Please verify your credentials.");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign In with JobLens Account";
+      }
+    }
+  });
+
+  // Real Email & Password Sign Up
+  formSignUp?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAuthError();
+
+    const name = document.getElementById("signup-name")?.value;
+    const email = document.getElementById("signup-email")?.value;
+    const password = document.getElementById("signup-password")?.value;
+    const sensitivity = document.getElementById("signup-sensitivity")?.value || "STANDARD";
+    const submitBtn = document.getElementById("btn-submit-signup");
+
+    if (!email || !password || !name) return;
+
+    try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Creating Firebase Account...";
+      }
+
+      const authService = typeof JobLensAuthService !== "undefined" ? JobLensAuthService : window.JobLensAuthService;
+      if (!authService) throw new Error("Authentication service unavailable");
+
+      const authRes = await authService.signUpWithEmailPassword(email, password, name);
+
+      userAccount = {
+        uid: authRes.uid,
+        name: authRes.name,
+        email: authRes.email,
+        idToken: authRes.idToken,
+        refreshToken: authRes.refreshToken,
+        isAnonymous: false,
+        threatSensitivity: sensitivity,
+        protectionEnabled: true,
+        authenticatedAt: authRes.authenticatedAt
+      };
+      isAuthenticated = true;
+
+      await saveState();
+      updateUserSessionUI();
+      showMainView();
+      triggerActiveTabScan();
+    } catch (err) {
+      showAuthError(err.message || "Registration failed. Please try again.");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Create Verified Candidate Account";
+      }
+    }
+  });
+
+  // Real Guest Anonymous Sign In
+  document.getElementById("btn-signin-guest")?.addEventListener("click", async () => {
+    hideAuthError();
+    const guestBtn = document.getElementById("btn-signin-guest");
+
+    try {
+      if (guestBtn) {
+        guestBtn.disabled = true;
+        guestBtn.textContent = "Authenticating Guest Session...";
+      }
+
+      const authService = typeof JobLensAuthService !== "undefined" ? JobLensAuthService : window.JobLensAuthService;
+      if (!authService) throw new Error("Authentication service unavailable");
+
+      const authRes = await authService.signInAsGuest();
+
+      userAccount = {
+        uid: authRes.uid,
+        name: authRes.name,
+        email: authRes.email,
+        idToken: authRes.idToken,
+        refreshToken: authRes.refreshToken,
+        isAnonymous: true,
+        threatSensitivity: "STANDARD",
+        protectionEnabled: true,
+        authenticatedAt: authRes.authenticatedAt
+      };
+      isAuthenticated = true;
+
+      await saveState();
+      updateUserSessionUI();
+      showMainView();
+      triggerActiveTabScan();
+    } catch (err) {
+      showAuthError(err.message || "Failed to initialize guest security session.");
+    } finally {
+      if (guestBtn) {
+        guestBtn.disabled = false;
+        guestBtn.textContent = "⚡ Continue as Guest Candidate";
+      }
+    }
   });
 
   // Protection Toggle
@@ -184,20 +343,22 @@ function setupEvents() {
     if (typeof chrome !== "undefined" && chrome.tabs?.query) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, { type: "GET_SELECTED_TEXT" }, (res) => {
-            if (res?.selectedText) {
-              analyzeOpportunity({
-                platform: "Page Text Selection",
-                sourceType: "JOB_POSTING",
-                jobTitle: "Highlighted Recruitment Selection",
-                companyName: "Active Page Selection",
-                jobDescription: res.selectedText,
-                applicationUrl: res.url
-              });
-            } else {
-              document.getElementById("manual-input-box")?.classList.remove("hidden");
-              document.getElementById("manual-paste-text")?.focus();
-            }
+          ensureContentScriptInjected(tabs[0].id, () => {
+            chrome.tabs.sendMessage(tabs[0].id, { type: "GET_SELECTED_TEXT" }, (res) => {
+              if (res?.selectedText) {
+                analyzeOpportunity({
+                  platform: "Page Text Selection",
+                  sourceType: "JOB_POSTING",
+                  jobTitle: "Highlighted Recruitment Selection",
+                  companyName: "Active Page Selection",
+                  jobDescription: res.selectedText,
+                  applicationUrl: res.url
+                });
+              } else {
+                document.getElementById("manual-input-box")?.classList.remove("hidden");
+                document.getElementById("manual-paste-text")?.focus();
+              }
+            });
           });
         }
       });
@@ -241,7 +402,7 @@ function setupEvents() {
     renderScanResult(currentReport);
   });
 
-  // Create Incident Report (Accurate local forensic log)
+  // Create Incident Report
   document.getElementById("btn-report-scam")?.addEventListener("click", () => {
     if (!currentReport) return;
     const incId = `INC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}-${Date.now().toString(36).toUpperCase()}`;
@@ -281,13 +442,12 @@ function setupEvents() {
       localStorage.removeItem("joblens_user");
     } catch (e) {}
 
-    const nameInput = document.getElementById("onboard-name");
-    const emailInput = document.getElementById("onboard-email");
-    if (nameInput) nameInput.value = "";
-    if (emailInput) emailInput.value = "";
+    const emailInp = document.getElementById("signin-email");
+    const passInp = document.getElementById("signin-password");
+    if (emailInp) emailInp.value = "";
+    if (passInp) passInp.value = "";
 
-    document.getElementById("view-main")?.classList.add("hidden");
-    document.getElementById("view-onboarding")?.classList.remove("hidden");
+    showAuthView();
 
     if (typeof chrome !== "undefined" && chrome.action?.setBadgeText) {
       chrome.action.setBadgeText({ text: "" });
@@ -368,6 +528,22 @@ function setupEvents() {
   }
 }
 
+function ensureContentScriptInjected(tabId, callback) {
+  if (typeof chrome !== "undefined" && chrome.scripting?.executeScript) {
+    chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content/content.js"]
+    }).then(() => {
+      callback();
+    }).catch(() => {
+      // In case already injected or scripting restricted
+      callback();
+    });
+  } else {
+    callback();
+  }
+}
+
 function triggerActiveTabScan() {
   if (typeof chrome !== "undefined" && chrome.tabs?.query) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -381,29 +557,30 @@ function triggerActiveTabScan() {
       document.getElementById("scan-result-card")?.classList.add("hidden");
       document.getElementById("no-job-card")?.classList.add("hidden");
 
-      chrome.tabs.sendMessage(activeTab.id, { type: "EXTRACT_PAGE_JOB_DATA" }, (response) => {
-        document.getElementById("scan-loading")?.classList.add("hidden");
-        if (chrome.runtime.lastError || !response || !response.success) {
-          showNoJobState("JobLens couldn't identify a recruitment opportunity on this page.");
-          const platEl = document.getElementById("detected-platform");
-          const titleEl = document.getElementById("target-job-title");
-          const compEl = document.getElementById("target-company-name");
-          if (platEl) platEl.textContent = "Web Page";
-          if (titleEl) titleEl.textContent = activeTab.title || "Active Web Page";
-          if (compEl) {
-            try {
-              compEl.textContent = new URL(activeTab.url).hostname;
-            } catch (e) {
-              compEl.textContent = "Current Web Page";
+      ensureContentScriptInjected(activeTab.id, () => {
+        chrome.tabs.sendMessage(activeTab.id, { type: "EXTRACT_PAGE_JOB_DATA" }, (response) => {
+          document.getElementById("scan-loading")?.classList.add("hidden");
+          if (chrome.runtime.lastError || !response || !response.success) {
+            showNoJobState("JobLens couldn't identify a recruitment opportunity on this page.");
+            const platEl = document.getElementById("detected-platform");
+            const titleEl = document.getElementById("target-job-title");
+            const compEl = document.getElementById("target-company-name");
+            if (platEl) platEl.textContent = "Web Page";
+            if (titleEl) titleEl.textContent = activeTab.title || "Active Web Page";
+            if (compEl) {
+              try {
+                compEl.textContent = new URL(activeTab.url).hostname;
+              } catch (e) {
+                compEl.textContent = "Current Web Page";
+              }
             }
+          } else {
+            analyzeOpportunity(response);
           }
-        } else {
-          analyzeOpportunity(response);
-        }
+        });
       });
     });
   } else {
-    // Preview environment without active Chrome extension tab
     showNoJobState("Extension preview mode: Select text or run a demo scenario from the Radar tab.");
   }
 }
@@ -438,7 +615,6 @@ function analyzeOpportunity(inputData) {
   } else if (typeof window !== "undefined" && window.JobLensSecurityEngine?.runSecurityEvaluation) {
     report = window.JobLensSecurityEngine.runSecurityEvaluation(inputData);
   } else {
-    // Basic fallback calculation if engine script tag was delayed
     report = {
       id: `scan_${Date.now()}`,
       timestamp: new Date().toISOString(),

@@ -15,14 +15,36 @@ export async function generateExtensionZip(): Promise<Blob> {
 
   const zip = new JSZip();
 
-  // Extension Manifest V3
+  // Extension Manifest V3 with targeted permissions
   const manifest = {
     manifest_version: 3,
     name: "JobLens - Recruitment Security & Scam Detection",
-    version: "2.1.0",
+    version: "2.2.0",
     description: "Proactive browser security layer against recruitment scams, advance-fee fraud, recruiter impersonation, and phishing.",
     permissions: ["sidePanel", "storage", "activeTab", "scripting", "contextMenus"],
-    host_permissions: ["<all_urls>"],
+    host_permissions: [
+      "https://*.linkedin.com/*",
+      "https://*.naukri.com/*",
+      "https://*.indeed.com/*",
+      "https://*.foundit.in/*",
+      "https://*.glassdoor.com/*",
+      "https://mail.google.com/*",
+      "https://outlook.live.com/*",
+      "https://outlook.office.com/*",
+      "https://*.greenhouse.io/*",
+      "https://*.lever.co/*",
+      "https://*.workday.com/*",
+      "https://*.myworkdayjobs.com/*",
+      "https://*.smartrecruiters.com/*",
+      "https://*.ashbyhq.com/*",
+      "https://*.workable.com/*",
+      "https://*.bamboohr.com/*",
+      "https://*.jobvite.com/*",
+      "https://*.ziprecruiter.com/*",
+      "https://*.wellfound.com/*",
+      "https://identitytoolkit.googleapis.com/*",
+      "https://securetoken.googleapis.com/*"
+    ],
     background: { service_worker: "background/service-worker.js" },
     side_panel: { default_path: "sidepanel/sidepanel.html" },
     action: {
@@ -42,7 +64,27 @@ export async function generateExtensionZip(): Promise<Blob> {
     },
     content_scripts: [
       {
-        matches: ["<all_urls>"],
+        matches: [
+          "https://*.linkedin.com/*",
+          "https://*.naukri.com/*",
+          "https://*.indeed.com/*",
+          "https://*.foundit.in/*",
+          "https://*.glassdoor.com/*",
+          "https://mail.google.com/*",
+          "https://outlook.live.com/*",
+          "https://outlook.office.com/*",
+          "https://*.greenhouse.io/*",
+          "https://*.lever.co/*",
+          "https://*.workday.com/*",
+          "https://*.myworkdayjobs.com/*",
+          "https://*.smartrecruiters.com/*",
+          "https://*.ashbyhq.com/*",
+          "https://*.workable.com/*",
+          "https://*.bamboohr.com/*",
+          "https://*.jobvite.com/*",
+          "https://*.ziprecruiter.com/*",
+          "https://*.wellfound.com/*"
+        ],
         js: ["content/content.js"],
         run_at: "document_idle"
       }
@@ -61,13 +103,14 @@ export async function generateExtensionZip(): Promise<Blob> {
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
 
   try {
-    const [sidepanelHtml, sidepanelCss, sidepanelJs, contentJs, serviceWorkerJs, securityEngineJs, readme] = await Promise.all([
+    const [sidepanelHtml, sidepanelCss, sidepanelJs, contentJs, serviceWorkerJs, securityEngineJs, authServiceJs, readme] = await Promise.all([
       fetch("/extension/sidepanel/sidepanel.html").then(r => r.text()),
       fetch("/extension/sidepanel/sidepanel.css").then(r => r.text()),
       fetch("/extension/sidepanel/sidepanel.js").then(r => r.text()),
       fetch("/extension/content/content.js").then(r => r.text()),
       fetch("/extension/background/service-worker.js").then(r => r.text()),
       fetch("/extension/detectors/security-engine.js").then(r => r.text()),
+      fetch("/extension/auth/auth-service.js").then(r => r.text()),
       fetch("/extension/README.md").then(r => r.text())
     ]);
 
@@ -77,6 +120,7 @@ export async function generateExtensionZip(): Promise<Blob> {
     zip.file("content/content.js", contentJs);
     zip.file("background/service-worker.js", serviceWorkerJs);
     zip.file("detectors/security-engine.js", securityEngineJs);
+    zip.file("auth/auth-service.js", authServiceJs);
     zip.file("README.md", readme);
 
     // Also include root aliases for legacy loaders
@@ -86,7 +130,7 @@ export async function generateExtensionZip(): Promise<Blob> {
     zip.file("content.js", contentJs);
     zip.file("background.js", serviceWorkerJs);
   } catch {
-    zip.file("README.md", "# JobLens Extension\\nLoad unpacked folder in chrome://extensions");
+    zip.file("README.md", "# JobLens Extension\nLoad unpacked folder in chrome://extensions");
   }
 
   // Icons

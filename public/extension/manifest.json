@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JobLens - Recruitment Security & Scam Detection",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Proactive browser-based recruitment security layer that detects fake jobs, advance-fee fraud, recruiter impersonation, and data harvesting.",
   "permissions": [
     "sidePanel",
@@ -11,7 +11,27 @@
     "contextMenus"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://*.linkedin.com/*",
+    "https://*.naukri.com/*",
+    "https://*.indeed.com/*",
+    "https://*.foundit.in/*",
+    "https://*.glassdoor.com/*",
+    "https://mail.google.com/*",
+    "https://outlook.live.com/*",
+    "https://outlook.office.com/*",
+    "https://*.greenhouse.io/*",
+    "https://*.lever.co/*",
+    "https://*.workday.com/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.smartrecruiters.com/*",
+    "https://*.ashbyhq.com/*",
+    "https://*.workable.com/*",
+    "https://*.bamboohr.com/*",
+    "https://*.jobvite.com/*",
+    "https://*.ziprecruiter.com/*",
+    "https://*.wellfound.com/*",
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -37,7 +57,25 @@
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://*.linkedin.com/*",
+        "https://*.naukri.com/*",
+        "https://*.indeed.com/*",
+        "https://*.foundit.in/*",
+        "https://*.glassdoor.com/*",
+        "https://mail.google.com/*",
+        "https://outlook.live.com/*",
+        "https://outlook.office.com/*",
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.workday.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.workable.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.ziprecruiter.com/*",
+        "https://*.wellfound.com/*"
       ],
       "js": [
         "content/content.js"

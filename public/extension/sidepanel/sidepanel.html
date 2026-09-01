@@ -8,41 +8,85 @@
 </head>
 <body class="theme-dark">
   <div id="app-container">
-    <!-- ONBOARDING VIEW (Shown on first run) -->
+    <!-- AUTHENTICATION VIEW (Shown when user is unauthenticated) -->
     <section id="view-onboarding" class="view-panel hidden">
       <div class="onboarding-card">
         <div class="brand-badge">
           <div class="brand-icon">🛡️</div>
           <h2>JobLens</h2>
         </div>
-        <p class="tagline">Browser Recruitment Security Layer</p>
+        <p class="tagline">Recruitment Security & Scam Defense</p>
         <p class="onboarding-desc">
-          Proactive protection against fake jobs, advance-fee scams, recruiter impersonation, and phishing as you browse.
+          Sign in to your JobLens account to activate real-time protection, forensic risk scoring, and threat logging.
         </p>
 
-        <form id="onboarding-form" class="form-stack">
+        <!-- Auth Mode Toggle -->
+        <div class="auth-tabs">
+          <button type="button" class="auth-tab-btn active" id="btn-tab-signin">Sign In</button>
+          <button type="button" class="auth-tab-btn" id="btn-tab-signup">Create Account</button>
+        </div>
+
+        <!-- Auth Error Banner -->
+        <div class="auth-error-box hidden" id="auth-error-box">
+          <span class="auth-error-icon">⚠️</span>
+          <span id="auth-error-text">Authentication failed</span>
+        </div>
+
+        <!-- SIGN IN FORM -->
+        <form id="form-signin" class="form-stack">
           <div class="field">
-            <label for="onboard-name">Your Name</label>
-            <input type="text" id="onboard-name" placeholder="e.g. Alex Morgan" required>
+            <label for="signin-email">Account Email</label>
+            <input type="email" id="signin-email" placeholder="candidate@example.com" required autocomplete="email">
           </div>
           <div class="field">
-            <label for="onboard-email">Email (for alert sync)</label>
-            <input type="email" id="onboard-email" placeholder="e.g. alex@example.com" required>
+            <label for="signin-password">Password</label>
+            <input type="password" id="signin-password" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block" id="btn-submit-signin">
+            Sign In with JobLens Account
+          </button>
+        </form>
+
+        <!-- SIGN UP FORM -->
+        <form id="form-signup" class="form-stack hidden">
+          <div class="field">
+            <label for="signup-name">Full Name</label>
+            <input type="text" id="signup-name" placeholder="e.g. Keerti Singh" required autocomplete="name">
           </div>
           <div class="field">
-            <label for="onboard-sensitivity">Threat Sensitivity</label>
-            <select id="onboard-sensitivity">
+            <label for="signup-email">Email Address</label>
+            <input type="email" id="signup-email" placeholder="candidate@example.com" required autocomplete="email">
+          </div>
+          <div class="field">
+            <label for="signup-password">Create Password</label>
+            <input type="password" id="signup-password" placeholder="Minimum 6 characters" minlength="6" required autocomplete="new-password">
+          </div>
+          <div class="field">
+            <label for="signup-sensitivity">Threat Sensitivity</label>
+            <select id="signup-sensitivity">
               <option value="STANDARD">Standard (Balanced Heuristics)</option>
               <option value="AGGRESSIVE">Aggressive (Zero-Trust Strict)</option>
               <option value="RELAXED">Relaxed (Flags Critical Only)</option>
             </select>
           </div>
 
-          <button type="submit" class="btn btn-primary btn-block">
-            Enable Proactive Protection
+          <button type="submit" class="btn btn-primary btn-block" id="btn-submit-signup">
+            Create Verified Candidate Account
           </button>
         </form>
-        <p class="privacy-note">🔒 Evaluates opportunities with zero tracking.</p>
+
+        <!-- DIVIDER -->
+        <div class="auth-divider">
+          <span>OR</span>
+        </div>
+
+        <!-- GUEST CANDIDATE ACCESS (FIREBASE ANONYMOUS AUTH) -->
+        <button type="button" class="btn btn-secondary btn-block" id="btn-signin-guest">
+          ⚡ Continue as Guest Candidate
+        </button>
+
+        <p class="privacy-note">🔒 True Firebase Auth verification. Zero tracking of unrelated browsing.</p>
       </div>
     </section>
 
@@ -118,10 +162,10 @@
           <p>You can select any recruitment text on the page or paste recruiter messages directly.</p>
           <div class="no-job-actions">
             <button class="btn btn-secondary btn-block" id="btn-select-text-action">
-              ✂️ Select Text to Scan
+              ✨ Scan Selected Text
             </button>
-            <button class="btn btn-outline btn-block" id="btn-open-paste-action">
-              📋 Paste Opportunity / Message
+            <button class="btn btn-ghost btn-block" id="btn-open-paste-action">
+              📋 Paste Opportunity Text
             </button>
           </div>
         </div>
@@ -145,7 +189,7 @@
           <!-- RISK HEADER -->
           <div class="risk-banner" id="risk-banner">
             <div class="risk-banner-header">
-              <div class="risk-title-group">
+              <div class="risk-badge-group">
                 <span class="risk-icon" id="risk-badge-icon">🚨</span>
                 <span class="risk-title-text" id="risk-badge-text">HIGH-RISK SIGNALS DETECTED</span>
               </div>
@@ -154,18 +198,22 @@
                 <span class="score-denom">/100</span>
               </div>
             </div>
+            <!-- Dynamic Progress Meter -->
             <div class="score-progress-bar">
               <div class="score-progress-fill" id="score-progress-fill"></div>
             </div>
           </div>
 
-          <!-- TRUST SIGNALS (For Low Risk) -->
+          <!-- TRUSTED STATE BADGE -->
           <div class="trust-box hidden" id="trust-box">
-            <div class="trust-title">✅ Verified Trust Indicators</div>
-            <p class="trust-desc">No advance-fee extortion, credential harvesting, or impersonation signals detected. Follow standard candidate due diligence.</p>
+            <div class="trust-header">
+              <span class="trust-icon">✅</span>
+              <h4>Legitimate Recruitment Indicators</h4>
+            </div>
+            <p>Opportunity adheres to standard corporate hiring patterns with no advance-fee demands or credential harvesting.</p>
           </div>
 
-          <!-- THREAT BREAKDOWN -->
+          <!-- THREAT DETAILS (When risks exist) -->
           <div class="threat-breakdown-box" id="threat-breakdown-box">
             <div class="category-pills" id="category-pills-row"></div>
             
@@ -193,7 +241,7 @@
           </div>
 
           <!-- BOTTOM ACTION TOOLBAR -->
-          <div class="scan-actions-grid">
+          <div class="result-toolbar">
             <button class="btn btn-xs btn-outline" id="btn-copy-report">📋 Copy Report</button>
             <button class="btn btn-xs btn-outline" id="btn-save-report">💾 Save</button>
             <button class="btn btn-xs btn-outline btn-danger-ghost" id="btn-report-scam">🚨 Create Incident Report</button>
@@ -202,13 +250,15 @@
         </div>
       </div>
 
-      <!-- TAB 2: THREAT HISTORY -->
+      <!-- TAB 2: HISTORY -->
       <div id="tab-history" class="tab-content">
         <div class="history-header">
-          <h3>Saved Threat Intelligence</h3>
-          <button class="btn btn-xs btn-ghost" id="btn-clear-history">Clear</button>
+          <h3>Saved Opportunity Scans</h3>
+          <button class="btn btn-xs btn-ghost text-danger" id="btn-clear-history">Clear</button>
         </div>
-        <div id="history-items-container" class="history-list"></div>
+        <div class="history-list" id="history-items-container">
+          <p class="text-dim text-center py-4">No recent scans recorded.</p>
+        </div>
       </div>
 
       <!-- TAB 3: SCAM RADAR -->
@@ -228,7 +278,7 @@
           </div>
           <div class="radar-item">
             <div class="radar-item-title">🆔 Aadhaar / PAN Credential Harvesting</div>
-            <p class="radar-item-desc">Demands sensitive national ID scans and bank credentials prior to interview.</p>
+            <p class="radar-item-desc">Solicits government ID proofs and bank statements before formal offer issuance.</p>
           </div>
           <div class="radar-item">
             <div class="radar-item-title">🖥️ AnyDesk / Remote Access RAT</div>
@@ -256,7 +306,7 @@
         </div>
       </div>
 
-      <!-- TAB 4: SAFETY TOOLKIT -->
+      <!-- TAB 4: SAFETY CHECKLIST -->
       <div id="tab-safety" class="tab-content">
         <div class="safety-header">
           <h3>Candidate Verification Protocol</h3>
@@ -277,7 +327,10 @@
           <div class="user-info-group pt-2">
             <div class="text-sm font-semibold" id="user-display-name">Not Signed In</div>
             <p class="user-email-text" id="user-display-email">Not authenticated</p>
-            <span class="pill pill-success text-xs mt-1" id="user-session-badge">Local On-Device Protection</span>
+            <div class="user-uid-text text-xs text-dim mt-1" id="user-display-uid">UID: None</div>
+            <div class="mt-2">
+              <span class="pill pill-success text-xs" id="user-session-badge">Verified Firebase Auth Session</span>
+            </div>
           </div>
           <div class="field pt-3">
             <label>Threat Sensitivity</label>
@@ -288,13 +341,14 @@
             </select>
           </div>
           <div class="settings-actions pt-4">
-            <button class="btn btn-secondary btn-block" id="btn-logout">Sign Out / Reset Session</button>
+            <button class="btn btn-secondary btn-block" id="btn-logout">Sign Out of Account</button>
           </div>
         </div>
       </div>
     </section>
   </div>
 
+  <script src="../auth/auth-service.js"></script>
   <script src="../detectors/security-engine.js"></script>
   <script src="sidepanel.js"></script>
 </body>
